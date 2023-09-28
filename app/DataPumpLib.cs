@@ -1,128 +1,33 @@
 ﻿using System.Text.Json;
-using Models;
-using Npgsql;
+using DataPumpModels;
 using System.Configuration;
-using System.Data;
-using System.Data.SqlClient;
 using NLog;
 using Microsoft.Data.SqlClient;
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
 
-using System.Threading.Tasks;
 
 
-internal class Program
-{
-
-    private static Logger logger = LogManager.GetCurrentClassLogger();
-
-    private static async Task<int> Main(string[] args)
-    {
-
-        var logconfig = LogManager.Configuration ?? new NLog.Config.LoggingConfiguration();
-
-        logger.Info("Data pump service started.");
-        logger.Info("Date: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:sszzz"));
-
-        string? destination = ConfigurationManager.AppSettings.Get("destination");
-        string? intervalMs = ConfigurationManager.AppSettings["intervalMs"];
-        string? connectString = ConfigurationManager.AppSettings["connectString"];
-        //string? earthranger_url = ConfigurationManager.AppSettings["earthranger_url"];
-        //string? earthranger_username = ConfigurationManager.AppSettings["earthranger_username"];
-        //string? earthranger_password = ConfigurationManager.AppSettings["earthranger_password"];
-        //string? earthranger_client_id = ConfigurationManager.AppSettings["earthranger_client_id"];
-        string? earthranger_provider_key = ConfigurationManager.AppSettings["earthranger_provider_key"];
-        string? earthranger_auth_token = ConfigurationManager.AppSettings["earthranger_auth_token"];
-
-
-        if (destination == null)
-        {
-            logger.Info("destination is null. Stubbornly refusing to run.");
-            return 0;
-        }
-
-        if (connectString == null)
-        {
-            logger.Info("connectString is null. Stubbornly refusing to run.");
-            return 0;
-        }
-
-        var dataPump = new DataPump(intervalMs == null ? 5000 : int.Parse(intervalMs));
-
-        var val = await dataPump.Run(
-            new DataReader(connectString), 
-            new DataWriter(destination, earthranger_auth_token, earthranger_provider_key));
-
-        logger.Info("Data pump service finished.");
-        logger.Info("Date: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:sszzz"));
-        return val;
-
-    }
-
-}
-
-
-public class DataPump
-{
-
-    int _intervalMs = 5000;
-
-    private static Logger logger = LogManager.GetCurrentClassLogger();
-    public DataPump(int intervalMs = 5000)
-    {
-        _intervalMs = intervalMs;
-
-    }
-    public async Task<int> Run(DataReader reader, DataWriter writer)
-    {
-
-         
-        var val = await this.Pump(reader, writer);
-        logger.Info("val: " + val.ToString());
-        await Task.Delay(this._intervalMs).ContinueWith(_ => logger.Info("World!"));
-
-        return 1;
-
-    }
-
-    private async Task<int> Pump(DataReader reader, DataWriter writer)
-    {
-        var lower_date = DateTime.UtcNow.AddMinutes(-10);
-        while (true)
-        {
-            await foreach (var item in reader.ReadNew(lower_date))
-            {
-                logger.Info("item: " + JsonSerializer.Serialize(item));
-
-                await writer.PostObservation(item);
-
-                lower_date = item.updated_at > lower_date ? item.updated_at : lower_date;
-            }
-
-            await Task.Delay(this._intervalMs).ContinueWith(_ => logger.Info("Continuing!"));
-        }
-        return 0;
-    }
-}
-public class DataReader
+public class KAS20DataReader : IDataReader
 {
 
     private string _connectionString;
+    private int _kas20_system_id;
     private int counter = 0;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
-    public DataReader(string connectString)
+    public KAS20DataReader(string connectionString, int kas20_system_id)
     {
 
-        _connectionString = connectString;
+        _connectionString = connectionString;
+        _kas20_system_id = kas20_system_id;
     }
 
 
     private static decimal to_decimal_degrees(double value)
     {
         /*
-         * This logic is based on conjecture. Looking atsamples in a live KAS-20 database, comparing stored
+         * This logic is based on conjecture. Looking at samples in a live KAS-20 database, comparing stored
          * values to what's reflected in the Dispatch user interface. The Dispatch UI shows values to 5 decimal.
          * The stored value is effectively (degrees * 100) + (decimal minutes). This function converts to
          * decimal degrees.
@@ -137,20 +42,30 @@ public class DataReader
         return decimal.Round((decimal)value_decimal, 5);
     }
 
-    public async IAsyncEnumerable<KenwoodGpsLogRecord> ReadNew(DateTime lower_date)
+   async  public IAsyncEnumerable<KenwoodGpsLogRecord> ReadNew(DateTime lower_date)
     {
+        using DataPump.StateHandler state_handler = new DataPump.StateHandler("state.json");
+        DataPump.State state = state_handler.LoadState();
+
 
         SqlConnection connection = new SqlConnection(this._connectionString);
-        var query = "select top 1000 system_id, date_time, latitude, longitude, e_w, n_s," +
+        var query = "select top 1000 gps_index, system_id, date_time, latitude, longitude, e_w, n_s," +
             " speed, unit_id, global_id, name, created_date, updated_date" +
             " from GpsLog" +
             " where updated_date > @lowwer_date" +
-            " order by date_time desc;";
+            " and system_id = @kas20_system_id" +
+            " and gps_index > @latest_gps_index" +
+            " order by date_time asc;";
+    
         connection.Open();
+
 
         using (SqlCommand command = new SqlCommand(query, connection))
         {
             command.Parameters.AddWithValue("@lowwer_date", lower_date);
+            command.Parameters.AddWithValue("@kas20_system_id", _kas20_system_id);
+            command.Parameters.AddWithValue("@latest_gps_index", state.latest_gps_index);
+
             using (SqlDataReader reader = command.ExecuteReader())
             {
                 while (reader.Read())
@@ -164,6 +79,7 @@ public class DataReader
                     long unitId = reader.GetInt64(reader.GetOrdinal("unit_id"));
                     DateTime createdDate = reader.GetDateTime(reader.GetOrdinal("created_date"));
                     DateTime updatedDate = reader.GetDateTime(reader.GetOrdinal("updated_date"));
+                    long gps_index = reader.GetInt64(reader.GetOrdinal("gps_index"));
 
 
                     double stored_latitude = reader.GetDouble(reader.GetOrdinal("latitude"));
@@ -188,24 +104,92 @@ public class DataReader
                     item.system_id = systemId;
 
                     //Console.WriteLine(JsonSerializer.Serialize<KenwoodGpsLogRecord>(item));
-                    yield return item;  
+                    yield return item;
+                    state.latest_gps_index = gps_index;
                 }
             }
+
+           
         }
 
         connection.Close();
- 
+
     }
 }
-public class DataWriter
+
+public class GundiDataWriter : IDataWriter
+{
+    private readonly HttpClient _httpClient;
+    private readonly string _destination;
+    private readonly string _apikey;
+
+    private static Logger logger = LogManager.GetCurrentClassLogger();
+    public GundiDataWriter(string destination = "https://cdip-api.pamdas.org", string apikey = "SomethingFancy")
+    {
+        this._httpClient = new HttpClient();
+        this._destination = destination;
+        this._apikey = apikey;
+        this._httpClient.DefaultRequestHeaders.Add("apikey", this._apikey);
+    }
+
+
+    public async Task<int> PostObservation(KenwoodGpsLogRecord record)
+    {
+        try
+        {
+            var location = new GundiLocation();
+            location.y = record.latitude;
+            location.x = record.longitude;
+
+            var position = new GundiPosition();
+            position.location = location;
+
+            position.name = record.name;
+            position.device_id = record.unit_id.ToString();
+            position.recorded_at = record.recorded_at;
+            position.type = "gps-radio";
+
+            position.additional = new Dictionary<string, object>()
+            {
+                { "system_id", record.system_id },
+                {"e_w", record.e_w },
+                { "n_s", record.n_s },
+                {"created_at", record.created_at },
+                {"updated_at", record.updated_at},
+                {"unit_id", record.unit_id }
+
+            };
+            List<GundiPosition> payload = new() { position};
+
+            logger.Info(JsonSerializer.Serialize<GundiPosition>(position));
+            var response = await _httpClient.PostAsJsonAsync<List<GundiPosition>>($"{this._destination}/positions/", payload);
+            var content = await response.Content.ReadAsStringAsync();
+
+            response.EnsureSuccessStatusCode();
+
+            return 0;
+        }
+        catch (HttpRequestException e)
+        {
+            logger.Warn("Exception: " + e.Message);
+        }
+        catch (Exception e)
+        {
+            logger.Info("Exception: " + e.Message);
+        }
+
+        return 0;
+    }
+}
+public class EarthRangerDataWriter : IDataWriter
 {
     private readonly HttpClient _httpClient;
     private readonly string _destination;
     private readonly string _token;
-    private readonly string _provider_key;  
+    private readonly string _provider_key;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
-    public DataWriter(string destination = "https://cdip-er.pamdas.org", string token = "SomethingFancy", string provider_key = "kenwood-radios")
+    public EarthRangerDataWriter(string destination = "https://cdip-er.pamdas.org", string token = "SomethingFancy", string provider_key = "kenwood-radios")
     {
         this._httpClient = new HttpClient();
         this._destination = destination;
@@ -226,11 +210,20 @@ public class DataWriter
             location.lon = record.longitude;
             observation.location = location;
 
-            observation.subject_name = record.name; 
-            observation.manufacturer_id = record.unit_id.ToString();    
-            observation.recorded_at = record.recorded_at;   
+            observation.subject_name = record.name;
+            observation.manufacturer_id = record.unit_id.ToString();
+            observation.recorded_at = record.recorded_at;
 
-            observation.additional = new Dictionary<string, object>();
+            observation.additional = new Dictionary<string, object> ()
+            {
+                { "system_id", record.system_id },
+                { "e_w", record.e_w },
+                { "n_s", record.n_s },
+                { "created_at", record.created_at },
+                { "updated_at", record.updated_at},
+                { "unit_id", record.unit_id }
+
+            };
 
             logger.Info(JsonSerializer.Serialize<EarthRangerObservation>(observation));
             var response = await _httpClient.PostAsJsonAsync<EarthRangerObservation>($"{this._destination}/api/v1.0/sensors/dasradioagent/{this._provider_key}/status", observation);
@@ -244,13 +237,13 @@ public class DataWriter
         }
         catch (HttpRequestException e)
         {
-            logger.Warn("Exception: " + e.Message); 
+            logger.Warn("Exception: " + e.Message);
         }
         catch (Exception e)
         {
             logger.Info("Exception: " + e.Message);
         }
 
-        return 0;   
+        return 0;
     }
 }

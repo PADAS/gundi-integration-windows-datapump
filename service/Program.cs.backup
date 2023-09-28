@@ -1,0 +1,10 @@
+using service;
+
+IHost host = Host.CreateDefaultBuilder(args)
+    .ConfigureServices(services =>
+    {
+        services.AddHostedService<RadioDataPumpService>();
+    })
+    .Build();
+
+host.Run();
