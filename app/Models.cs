@@ -1,18 +1,7 @@
 using System.Runtime.InteropServices;
 
-namespace Models {
+namespace DataPumpModels {
 
-    public class StatusData {
-        public string version { get; set; }
-        public int show_track_days { get; set; }
-        public bool event_search_enabled { get; set; }
-        public string site_name { get; set; }
-
-    }
-    public class StatusResponse {
-        public StatusData data { get; set; }
-
-    }
 
     public class KenwoodGpsLogRecord
     {
@@ -43,7 +32,21 @@ namespace Models {
         public string subject_name { get; set; }
         public IDictionary<string, object> additional { get; set; }
 
+    }
 
+    public class GundiLocation
+    {
+        public decimal x { get; set; }
+        public decimal y { get; set; }
 
+    }
+    public class GundiPosition
+    {
+        public DateTime recorded_at { get; set; }
+        public string device_id { get; set; }
+        public string type { get; set; }
+        public string name { get; set; }
+        public GundiLocation location { get; set; }
+        public IDictionary<string, object> additional { get; set; }
     }
 }

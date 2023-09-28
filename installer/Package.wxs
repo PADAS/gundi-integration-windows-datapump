@@ -1,0 +1,126 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- Define the variables in "$(var.*) expressions" -->
+<?define Name = "Gundi Radio Service" ?>
+<?define Manufacturer = "Ai2 EarthRanger" ?>
+<?define Version = "1.0.0.0" ?>
+<?define UpgradeCode = "9ED3FF33-8718-444E-B44B-69A2344B7E98" ?>
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  
+  
+  <Package Name="$(Name)"
+           Manufacturer="$(Manufacturer)"
+           Version="$(Version)"
+           UpgradeCode="$(var.UpgradeCode)"
+           Compressed="true">
+
+    <Property Id="gundi_apikey" Value="foobar"></Property>
+    <Property Id="USERNAME" Secure="yes" />
+    <Property Id="PASSWORD" Secure="yes" />
+    
+    <ui:WixUI
+       Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER"
+        />
+
+    <UI Id="MyCustomUI">
+      <DialogRef Id="CustomUsernamePasswordDlg" />
+      <!--<Publish Dialog="CustomUsernamePasswordDlg" Control="Next" Event="NextDialog" Value="InstallDirDlg"></Publish>-->
+    </UI>
+    
+    <!-- Allow upgrades and prevent downgrades -->
+    <MajorUpgrade DowngradeErrorMessage="A later version of $(var.Name) is already installed. Setup will now exit." />
+
+
+    <!-- Define the directory structure -->
+    <StandardDirectory Id="ProgramFilesFolder">
+
+        <!-- Create a folder inside program files -->
+        <Directory Id="ROOTDIRECTORY" Name="$(var.Manufacturer)">
+
+          <!-- Create a folder within the parent folder given the name -->
+          <Directory Id="INSTALLFOLDER" Name="$(Name)" />
+        </Directory>
+    </StandardDirectory>
+
+    <!-- The files inside this DirectoryRef are linked to
+             the App.WindowsService directory via INSTALLFOLDER -->
+    <DirectoryRef Id="INSTALLFOLDER">
+
+      <Component Id="ExtraFiles" Bitness="always32">
+        <File Id="Microsoft.Data.SqlClient.SNI.dll"
+          Source="$(var.RadioService.TargetDir)publish\Microsoft.Data.SqlClient.SNI.dll"
+          KeyPath="true" />   
+      </Component>
+      <!-- Create a single component which is the App.WindowsService.exe file -->
+      <Component Id="ServiceExecutable" Bitness="always32">
+
+        <!-- Copies the services executable file using the
+                     project reference preprocessor variables -->
+        <File Id="RadioService.exe"
+              Source="$(var.RadioService.TargetDir)publish\RadioService.exe"
+              KeyPath="true" />
+        <File Id="settings"
+              Source="$(var.RadioService.TargetDir)publish\appsettings.json"
+              KeyPath="false" />
+        
+        <File Id="NLog.config"
+              Source="$(var.RadioService.TargetDir)publish\NLog.config"
+              KeyPath="false" />
+              
+
+        
+        <CreateFolder Subdirectory="logs" />
+
+        <!-- Remove all files from the INSTALLFOLDER on uninstall -->
+        <RemoveFile Id="ALLFILES" Name="*.*" On="both" />
+
+        <!-- Tell WiX to install the Service -->
+        <ServiceInstall Id="ServiceInstaller"
+                        Type="ownProcess"
+                        Name="$(Name)"
+                        DisplayName="$(Name)"
+                        Description="A Radio connector service for EarthRanger."
+                        Start="auto"
+                        ErrorControl="normal" 
+                        />
+
+        <!-- Tell WiX to start the Service -->
+        <ServiceControl Id="StartService"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Name="$(Name)"
+                        Wait="true" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- Tell WiX to install the files -->
+    <Feature Id="Service" Title="Gundi Radio Service Setup" Level="1">
+      <ComponentRef Id="ServiceExecutable" />
+      <ComponentRef Id="ExtraFiles"/>
+    </Feature>
+
+  </Package>
+
+  <Fragment>
+    <UI Id="CustomUI">
+    <Dialog Id="CustomUsernamePasswordDlg" Width="370" Height="270" Title="Enter Credentials">
+      <Control Id="UsernameLabel" Type="Text" X="30" Y="85" Width="75" Height="17" Text="Username:" />
+      <Control Id="UsernameEdit" Type="Edit" X="110" Y="80" Width="220" Height="18" Property="USERNAME" />
+      <Control Id="PasswordLabel" Type="Text" X="30" Y="115" Width="75" Height="17" Text="Password:" />
+      <Control Id="PasswordEdit" Type="Edit" X="110" Y="110" Width="220" Height="18" Property="PASSWORD" Password="yes" />
+      <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="Next">
+        <Publish Property="USERNAME" Value="[USERNAME]" Order="1"></Publish>
+        <Publish Property="PASSWORD" Value="[PASSWORD]" Order="2"></Publish>
+        <Publish Event="NewDialog" Value="InstallDirDlg"></Publish>
+      </Control>
+      <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel">
+        <Publish Event="SpawnDialog" Value="CancelDlg"></Publish>
+      </Control>
+    </Dialog>
+    </UI>
+  </Fragment>
+
+</Wix>
