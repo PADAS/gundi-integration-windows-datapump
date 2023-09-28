@@ -1,0 +1,15 @@
+﻿<Project Sdk="WixToolset.Sdk/4.0.0">
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="LoginDlg.wxi" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="4.0.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\app\DataPump.csproj" />
+    <ProjectReference Include="..\service\RadioService.csproj" />
+  </ItemGroup>
+</Project>

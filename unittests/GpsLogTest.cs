@@ -1,4 +1,4 @@
-
+using DataPump;
 
 namespace kenwood_unittests
 {
@@ -7,7 +7,7 @@ namespace kenwood_unittests
         [Fact]
         public void Test1()
         {
-            DataPump pump = new DataPump();
+            RadioDataPump pump = new RadioDataPump();
             Assert.True(true);
 
         }
