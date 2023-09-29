@@ -1,11 +1,27 @@
-﻿{
+{
   "profiles": {
     "service": {
       "commandName": "Project",
-      "dotnetRunMessages": true,
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"
-      }
+      },
+      "dotnetRunMessages": true
+    },
+    "service install": {
+      "commandName": "Project",
+      "commandLineArgs": "/Install",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      },
+      "dotnetRunMessages": true
+    },
+    "service remove": {
+      "commandName": "Project",
+      "commandLineArgs": "/Uninstall",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      },
+      "dotnetRunMessages": true
     }
   }
 }
