@@ -6,16 +6,13 @@ using DataPump;
 using System.Threading.Tasks;
 using worker;
 
-using IniParser;
-using IniParser.Model;
 
 public class RadioDataPumpService : BackgroundService
 {
     private readonly ILogger<RadioDataPumpService> _logger;
     private static readonly Logger logger = LogManager.GetCurrentClassLogger();
     private readonly IConfiguration _configuration;
-    private IniData _iniData;
-
+    
     public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration c)
     {
         _logger = logger;
@@ -25,28 +22,8 @@ public class RadioDataPumpService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
 
-        RadioDataPumpConfiguration config = new RadioDataPumpConfiguration();
-
-        /* I really like IConfiguration that can bind to appsettings.json, but
-         * using a settings.ini file makes installation quite a bit simpler. */
-        _configuration.GetSection("RadioDataPumpConfiguration").Bind(config);
-
-        // Use an INI file for settings.
-        //var parser = new FileIniDataParser();
-        //_iniData = parser.ReadFile("settings.ini");
-
-        //logger.Info("Settings.gundi_api: " + _iniData["gundi"]["gundi_api"]);
-
-        //config.destination = _iniData["gundi"]["destination"];
-        //config.intervalMs = _iniData["gundi"]["intervalMs"];
-        //config.gundi_apikey = _iniData["gundi"]["apikey"];
-
-        //var db_server = _iniData["kas20"]["server"];
-        //var db_database = _iniData["kas20"]["database"];    
-        //var user_id = _iniData["kas20"]["user_id"];
-        //var password = _iniData["kas20"]["password"];
-        //config.connectionString = $"Data Source={db_server};Initial Catalog={db_database};User ID={user_id};Password={password};TrustServerCertificate=True;";
-        //config.kas20_system_id = _iniData["kas20"]["system_id"];    
+        var config = new RadioServiceConfiguration();
+        _configuration.GetSection("RadioServiceConfiguration").Bind(config);
 
         try
         {
@@ -59,7 +36,6 @@ public class RadioDataPumpService : BackgroundService
 
                 logger.Info("Data pump service started.");
                 logger.Info("Date: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:sszzz"));
-
 
 
                 if (config.destination == null)
