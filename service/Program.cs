@@ -4,93 +4,168 @@ using service;
 using worker;
 using CliWrap;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 
-const string service_name = "Gundi Radio Service";
-const string service_executable_name = "RadioService.exe";
-
-
-if (args is { Length: 1 })
+internal class Program
 {
-    try
-    {
-        string executablePath =
-            Path.Combine(AppContext.BaseDirectory, service_executable_name);
 
-        if (args[0] is "/Install")
+    private static bool IsAdministrator()
+    {
+        using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
         {
-            var result = await Cli.Wrap("sc")
-                .WithArguments(new[] {
+            WindowsPrincipal principal = new WindowsPrincipal(identity);
+            return principal.IsInRole(WindowsBuiltInRole.Administrator);
+        }
+    }
+    private static async Task Main(string[] args)
+    {
+        const string service_name = "Gundi Radio Service";
+        const string service_executable_name = "RadioService.exe";
+
+
+        if (!IsAdministrator())
+        {
+            Console.WriteLine("You must run this program as an administrator.");
+            return;
+        }
+
+        if (args is { Length: 1 })
+        {
+
+
+            try
+            {
+                string executablePath =
+                    Path.Combine(AppContext.BaseDirectory, service_executable_name);
+
+                if (args[0].ToLower() is "/install")
+                {
+                    var result = await Cli.Wrap("sc")
+                        .WithArguments(new[] {
                     "create",
                     service_name,
                     $"binPath={executablePath}",
                     "start=auto",
                     $"displayname={service_name}"})
-                .WithValidation(CommandResultValidation.None).ExecuteAsync();
+                        .WithValidation(CommandResultValidation.None).ExecuteAsync();
 
-            int[] good_return_codes = {
+                    int[] good_return_codes = {
                 0, // success 
                 1073 // a service with that name already exists
                 };
-            if (!good_return_codes.Contains(result.ExitCode))
-            {
-                Console.WriteLine($"I could not create the service {result.ExitCode}");
-                return;
-            }
-            
-            result = await Cli.Wrap("sc").WithArguments(new[] {
+                    if (!good_return_codes.Contains(result.ExitCode))
+                    {
+                        Console.WriteLine($"I could not create the service (exit code: {result.ExitCode})");
+                        return;
+                    }
+
+                    result = await Cli.Wrap("sc").WithArguments(new[] {
                     "failure",
                     service_name,
                     "reset=0",
                     "actions=restart/60000/restart/120000/restart/180000" }).ExecuteAsync();
 
-            result = await Cli.Wrap("sc").WithArguments(new[] {
+                    result = await Cli.Wrap("sc").WithArguments(new[] {
                     "description",
                     service_name,
                     "A Gundi/EarthRanger service that reads radio location data from KAS20 database." }).ExecuteAsync();
 
-            result = await Cli.Wrap("sc").WithArguments(new[] {
+                    result = await Cli.Wrap("sc").WithArguments(new[] {
                     "start",
                     service_name,
                     }).ExecuteAsync();
 
+                }
+                else if (args[0].ToLower() is "/uninstall")
+                {
+                    await Cli.Wrap("sc")
+                        .WithArguments(new[] { "stop", service_name })
+                        .WithValidation(CommandResultValidation.None)
+                        .ExecuteAsync();
+
+                    await Cli.Wrap("sc")
+                        .WithArguments(new[] { "delete", service_name })
+                        .ExecuteAsync();
+                }
+                else if (args[0].ToLower() is "/configure")
+                {
+                    AppSettingsManager appSettingsManager = new AppSettingsManager("appsettings.json");
+
+                    var settings = appSettingsManager.LoadValue();
+                    var config = settings.RadioServiceConfiguration;
+
+                    while (true)
+                    {
+                        Console.Write($"Enter the destination [{config.destination}]: ");
+                        string? val = Console.ReadLine().Trim();
+                        config.destination = val != "" ? val : config.destination;
+
+                        Console.Write($"Enter your Gundi API Key [{config.gundi_apikey}]: ");
+                        val = Console.ReadLine().Trim();
+                        config.gundi_apikey = val != "" ? val : config.gundi_apikey;
+
+                        config.database_server ??= "localhost";
+                        Console.Write($"Enter your KAS20 Database Server [{config.database_server}]: ");
+                        val = Console.ReadLine().Trim();
+                        config.database_server = val != "" ? val : config.database_server;
+
+                        config.database_name ??= "KAS20";
+                        Console.Write($"Enter your KAS20 Database Name [{config.database_name}]: ");
+                        val = Console.ReadLine().Trim();
+                        config.database_name = val != "" ? val : config.database_name;
+
+                        config.database_user ??= "KAS20Admin";
+                        Console.Write($"Enter your KAS20 Database User [{config.database_user}]: ");
+                        val = Console.ReadLine().Trim();
+                        config.database_user = val != "" ? val : config.database_user;
+
+                        config.database_password ??= "a password";
+                        Console.Write($"Enter your KAS20 Database Password [{config.database_password}]: ");
+                        val = Console.ReadLine().Trim();
+                        config.database_password = val != "" ? val : config.database_password;
+
+                        Console.WriteLine("Press enter to save and exit, 'r' to redo, or 'q' to exit without saving.");
+                        val = Console.ReadLine().Trim();
+                        if (val == "q")
+                        {
+                            return;
+                        }
+                        else if (val == "r")
+                        {
+                            continue;
+                        }
+                        break;
+                    }
+
+                    appSettingsManager.SaveValue();
+
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An unexpected error ocurred. See more info below.\n{ex}");
+            }
+
+            return;
         }
-        else if (args[0] is "/Uninstall")
+
+        var builder = Host.CreateApplicationBuilder(args);
+
+        builder.Services.AddWindowsService(options =>
         {
-            await Cli.Wrap("sc")
-                .WithArguments(new[] { "stop", service_name })
-                .WithValidation(CommandResultValidation.None)
-                .ExecuteAsync();
+            options.ServiceName = service_name;
+        });
 
-            await Cli.Wrap("sc")
-                .WithArguments(new[] { "delete", service_name })
-                .ExecuteAsync();
+        // Conditional to suppress violation of CA1416
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            LoggerProviderOptions.RegisterProviderOptions<
+            EventLogSettings, EventLogLoggerProvider>(builder.Services);
         }
+
+        builder.Services.AddHostedService<RadioDataPumpService>();
+
+        IHost host = builder.Build();
+        host.Run();
     }
-    catch (Exception ex)
-    {
-        Console.WriteLine(ex);
-    }
-
-    return;
 }
-
-
-var builder = Host.CreateApplicationBuilder(args);
-
-builder.Services.AddWindowsService(options =>
-{
-    options.ServiceName = service_name;
-});
-
-// Conditional to suppress violation of CA1416
-if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) { 
-    LoggerProviderOptions.RegisterProviderOptions<
-    EventLogSettings, EventLogLoggerProvider>(builder.Services);
-}
-
-builder.Services.Configure<RadioServiceConfiguration>(builder.Configuration.GetSection("RadioDataPumpConfiguration"));
-
-builder.Services.AddHostedService<RadioDataPumpService>();
-
-IHost host = builder.Build();
-host.Run();

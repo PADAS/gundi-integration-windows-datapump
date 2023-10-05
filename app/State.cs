@@ -27,7 +27,7 @@ namespace DataPump
             {
                 if (!_state.dirty)
                 {
-                    logger.Debug("Program state not dirty. Skipping save.");
+                    //logger.Debug("Program state not dirty. Skipping save.");
                     return;
                 }
                 string json = JsonSerializer.Serialize(_state);
@@ -49,12 +49,12 @@ namespace DataPump
                 {
                     string json = File.ReadAllText(stateFilePath);
                     _state = JsonSerializer.Deserialize<State>(json);
-                    logger.Debug("Program state loaded successfully.");
-                   
+                    logger.Info("State loaded successfully.");
+
                 }
                 else
                 {
-                    logger.Debug("Program state file does not exist. Creating a new one.");
+                    logger.Debug("State file does not exist. Creating a new one.");
                     _state = new State()
                     {
                         latest_gps_index = 0
@@ -66,7 +66,7 @@ namespace DataPump
             }
             catch (Exception ex)
             {
-                logger.Debug($"Error loading program state: {ex.Message}");
+                logger.Debug($"Error loading service state: {ex.Message}");
                 return new State(); // Return a default state if loading fails.
             }
         }
