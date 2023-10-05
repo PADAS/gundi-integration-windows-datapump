@@ -22,6 +22,14 @@
         "DOTNET_ENVIRONMENT": "Development"
       },
       "dotnetRunMessages": true
+    },
+    "service configure": {
+      "commandName": "Project",
+      "commandLineArgs": "/Configure",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      },
+      "dotnetRunMessages": true
     }
   }
 }
