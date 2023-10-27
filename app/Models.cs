@@ -49,4 +49,23 @@ namespace DataPumpModels {
         public GundiLocation location { get; set; }
         public IDictionary<string, object> additional { get; set; }
     }
+
+    public class GundiV2Location
+    {
+        public decimal lon { get; set; }
+        public decimal lat { get; set; }
+
+    }
+
+    public class GundiV2Observation
+    {
+        public DateTime recorded_at { get; set; }
+        public string source { get; set; }
+        public string source_name { get; set; }
+
+        public string type { get; set; }
+        public GundiV2Location location { get; set; }
+        public IDictionary<string, object> additional { get; set; }
+    }
+
 }
