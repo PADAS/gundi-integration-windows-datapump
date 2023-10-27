@@ -50,14 +50,19 @@ public class RadioDataPumpService : BackgroundService
                     return;
                 }
 
+                logger.Info("Starting up");
+
+                logger.Info("destination: " + config.destination);
                 var dataPump = new RadioDataPump(config.intervalMs == null ? 5000 : int.Parse(config.intervalMs));
 
                 if (config.gundi_apikey != "")
                 {
                     logger.Info("Gundi API key is set. Adding Gundi data pump.");
+
+                    IDataWriter data_writer = config.gundi_apiversion == "2" ? new GundiV2DataWriter(config.destination, config.gundi_apikey) : new GundiDataWriter(config.destination, config.gundi_apikey);
                     var val = await dataPump.Run(
                         new KAS20DataReader(config.connectionString, int.Parse(config.kas20_system_id)),
-                        new GundiDataWriter(config.destination, config.gundi_apikey),
+                        data_writer,
                         stoppingToken);
                 }
                 else 

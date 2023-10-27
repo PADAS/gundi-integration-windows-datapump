@@ -28,6 +28,7 @@ namespace worker
         public string? earthranger_provider_key { get; set; }
         public string? earthranger_auth_token { get; set; }
         public string? gundi_apikey { get; set; }
+        public string? gundi_apiversion { get; set; }
         public string? kas20_system_id { get; set; }    
     }
 

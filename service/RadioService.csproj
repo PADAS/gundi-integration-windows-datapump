@@ -18,4 +18,12 @@
   <ItemGroup>
     <ProjectReference Include="..\app\DataPump.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="appsettings - Copy.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
 </Project>
