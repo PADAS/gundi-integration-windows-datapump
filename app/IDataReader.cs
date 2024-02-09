@@ -2,5 +2,5 @@
 
 public interface IDataReader
 {
-    IAsyncEnumerable<KenwoodGpsLogRecord> ReadNew(DateTime lower_date);
+    IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date);
 }

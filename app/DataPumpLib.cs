@@ -1,11 +1,15 @@
 ﻿using System.Text.Json;
 using DataPumpModels;
+
 using System.Configuration;
 using NLog;
 using Microsoft.Data.SqlClient;
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
 using System.Data.SqlTypes;
+
+using Npgsql;
+using System;
 
 
 public class KAS20DataReader : IDataReader
@@ -16,10 +20,10 @@ public class KAS20DataReader : IDataReader
     private int counter = 0;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
-    public KAS20DataReader(string connectionString, int kas20_system_id)
+    public KAS20DataReader(string database_server, string database_name, string database_user, string database_password, int kas20_system_id)
     {
 
-        _connectionString = connectionString;
+        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
         _kas20_system_id = kas20_system_id;
     }
 
@@ -42,7 +46,7 @@ public class KAS20DataReader : IDataReader
         return decimal.Round((decimal)value_decimal, 5);
     }
 
-   async  public IAsyncEnumerable<KenwoodGpsLogRecord> ReadNew(DateTime lower_date)
+   async  public IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date)
     {
         using DataPump.StateHandler state_handler = new DataPump.StateHandler("state.json");
         DataPump.State state = state_handler.LoadState();
@@ -131,70 +135,109 @@ public class KAS20DataReader : IDataReader
     }
 }
 
-public class GundiDataWriter : IDataWriter
+public class SmartDispatchPlusV1Reader : IDataReader
 {
-    private readonly HttpClient _httpClient;
-    private readonly string _destination;
-    private readonly string _apikey;
+
+    private string _connectionString;
+    private int _kas20_system_id;
+    private int counter = 0;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
-    public GundiDataWriter(string destination = "https://cdip-api.pamdas.org", string apikey = "SomethingFancy")
+    public SmartDispatchPlusV1Reader(string database_server, string database_name, string database_user, string database_password)
     {
-        this._httpClient = new HttpClient();
-        this._destination = destination;
-        this._apikey = apikey;
-        this._httpClient.DefaultRequestHeaders.Add("apikey", this._apikey);
+        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};";    
     }
 
 
-    public async Task<int> PostObservation(KenwoodGpsLogRecord record)
+
+    async public IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date)
     {
-        try
+        using DataPump.StateHandler state_handler = new DataPump.StateHandler("state.json");
+        DataPump.State state = state_handler.LoadState();
+
+
+        NpgsqlConnection connection = new NpgsqlConnection(this._connectionString);
+        
+        // Note: "lontitude" is the name of the longitude column.
+        var query = "SELECT d.alias, g.id, g.deviceguid, g.deviceid, g.lontitude, g.latitude, g.speed," +
+            " g.recvgpstime, g.happentime, g.activeflag, g.direction, g.description," +
+            " g.gpstype, g.gpscontext, g.streetname, g.rssi" + 
+            " FROM dbo.gpsinfo g JOIN dbo.device d ON d.deviceid = g.deviceid" + 
+            " WHERE g.recvgpstime > @lower_date" +
+            " and id > @latest_gps_index" +
+            " ORDER BY g.recvgpstime asc" +
+            " LIMIT 1000;";
+
+
+
+        connection.Open();
+
+
+        using (NpgsqlCommand command = new NpgsqlCommand(query, connection))
         {
-            var location = new GundiLocation();
-            location.y = record.latitude;
-            location.x = record.longitude;
+            command.Parameters.AddWithValue("@lower_date", DateTime.SpecifyKind(lower_date, DateTimeKind.Unspecified));
+            command.Parameters.AddWithValue("@latest_gps_index", state.latest_gps_index);
 
-            var position = new GundiPosition();
-            position.location = location;
-
-            position.name = record.name;
-            position.device_id = record.unit_id.ToString();
-            position.recorded_at = record.recorded_at;
-            position.type = "gps-radio";
-
-            position.additional = new Dictionary<string, object>()
+            using (NpgsqlDataReader reader = command.ExecuteReader())
             {
-                { "system_id", record.system_id },
-                {"e_w", record.e_w },
-                { "n_s", record.n_s },
-                {"created_at", record.created_at },
-                {"updated_at", record.updated_at},
-                {"unit_id", record.unit_id }
+                while (reader.Read())
+                {
+                    SmartDispatchPlusV1Record item = null;
+                    try
+                    {
 
-            };
-            List<GundiPosition> payload = new() { position};
+                        item = new SmartDispatchPlusV1Record
+                        {
+                            latitude = reader.GetDouble(reader.GetOrdinal("latitude")),
+                            longitude = reader.GetDouble(reader.GetOrdinal("lontitude")),
 
-            logger.Info(JsonSerializer.Serialize<GundiPosition>(position));
-            var response = await _httpClient.PostAsJsonAsync<List<GundiPosition>>($"{this._destination}/positions/", payload);
-            var content = await response.Content.ReadAsStringAsync();
 
-            response.EnsureSuccessStatusCode();
+                            id = reader.GetInt64(reader.GetOrdinal("id")),
+                            device_alias = reader.GetString(reader.GetOrdinal("alias")),
+                            deviceid = reader.GetInt32(reader.GetOrdinal("deviceid")),
+                            deviceguid = reader.GetString(reader.GetOrdinal("deviceguid")),
+                            description = reader.GetString(reader.GetOrdinal("description")),
+                            direction = reader.GetDouble(reader.GetOrdinal("direction")),
+                            rssi = reader.GetDouble(reader.GetOrdinal("rssi")),
+                            activeflag = reader.GetInt32(reader.GetOrdinal("activeflag")),
 
-            return 0;
+                            recvgpstime = reader.GetDateTime(reader.GetOrdinal("recvgpstime")),
+                            happentime = reader.GetDateTime(reader.GetOrdinal("happentime"))
+                        };
+
+                        // Timestamps are naive in the database.
+                        item.recvgpstime = DateTime.SpecifyKind(item.recvgpstime, DateTimeKind.Utc);
+                        item.happentime = DateTime.SpecifyKind(item.happentime, DateTimeKind.Utc);
+
+
+                        // Advance cursor in state.
+                        state.latest_gps_index = item.id;
+
+
+                    }
+                    catch (NpgsqlException e)
+                    {
+                        logger.Warn("Failed parsing a result from querying SmartDispatchPlusV1 Database: " + e.Message);
+                    }
+                    
+
+                    if (item != null)
+                    {
+                        yield return item;
+                    }
+
+
+                }
+            }
+
+
         }
-        catch (HttpRequestException e)
-        {
-            logger.Warn("Exception: " + e.Message);
-        }
-        catch (Exception e)
-        {
-            logger.Info("Exception: " + e.Message);
-        }
 
-        return 0;
+        connection.Close();
+
     }
 }
+
 public class GundiV2DataWriter : IDataWriter
 {
     private readonly HttpClient _httpClient;
@@ -202,7 +245,7 @@ public class GundiV2DataWriter : IDataWriter
     private readonly string _apikey;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
-    public GundiV2DataWriter(string destination = "https://cdip-api.pamdas.org", string apikey = "SomethingFancy")
+    public GundiV2DataWriter(string destination = "https://sensors.api.gundiservice.org", string apikey = "SomethingFancy")
     {
         this._httpClient = new HttpClient();
         this._destination = destination;
@@ -211,32 +254,12 @@ public class GundiV2DataWriter : IDataWriter
     }
 
 
-    public async Task<int> PostObservation(KenwoodGpsLogRecord record)
+    public async Task<int> PostObservation(ISourceRecord record)
     {
         try
         {
-            var location = new GundiV2Location();
-            location.lat = record.latitude;
-            location.lon = record.longitude;
+            var observation = record.ToGundiV2Observation();
 
-            var observation = new GundiV2Observation();
-            observation.location = location;
-
-            observation.source_name = record.name;
-            observation.source = record.unit_id.ToString();
-            observation.recorded_at = record.recorded_at;
-            observation.type = "gps-radio";
-
-            observation.additional = new Dictionary<string, object>()
-            {
-                { "system_id", record.system_id },
-                {"e_w", record.e_w },
-                { "n_s", record.n_s },
-                {"created_at", record.created_at },
-                {"updated_at", record.updated_at},
-                {"unit_id", record.unit_id }
-
-            };
             List<GundiV2Observation> payload = new() { observation };
 
             logger.Info(JsonSerializer.Serialize<GundiV2Observation>(observation));
@@ -278,31 +301,13 @@ public class EarthRangerDataWriter : IDataWriter
     }
 
 
-    public async Task<int> PostObservation(KenwoodGpsLogRecord record)
+    public async Task<int> PostObservation(ISourceRecord record)
     {
         try
         {
-            var observation = new EarthRangerObservation();
-            var location = new EarthRangerLocation();
-            location.lat = record.latitude;
-            location.lon = record.longitude;
-            observation.location = location;
 
-            observation.subject_name = record.name;
-            observation.manufacturer_id = record.unit_id.ToString();
-            observation.recorded_at = record.recorded_at;
-
-            observation.additional = new Dictionary<string, object> ()
-            {
-                { "system_id", record.system_id },
-                { "e_w", record.e_w },
-                { "n_s", record.n_s },
-                { "created_at", record.created_at },
-                { "updated_at", record.updated_at},
-                { "unit_id", record.unit_id }
-
-            };
-
+            var observation = record.ToEarthRangerObservation();
+            
             logger.Info(JsonSerializer.Serialize<EarthRangerObservation>(observation));
             var response = await _httpClient.PostAsJsonAsync<EarthRangerObservation>($"{this._destination}/api/v1.0/sensors/dasradioagent/{this._provider_key}/status", observation);
             var content = await response.Content.ReadAsStringAsync();

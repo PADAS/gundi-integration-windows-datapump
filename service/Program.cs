@@ -50,9 +50,9 @@ internal class Program
                         .WithValidation(CommandResultValidation.None).ExecuteAsync();
 
                     int[] good_return_codes = {
-                0, // success 
-                1073 // a service with that name already exists
-                };
+                                                0, // success 
+                                                1073 // a service with that name already exists
+                                                };
                     if (!good_return_codes.Contains(result.ExitCode))
                     {
                         Console.WriteLine($"I could not create the service (exit code: {result.ExitCode})");
