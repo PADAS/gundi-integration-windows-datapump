@@ -50,6 +50,15 @@ public class RadioDataPumpService : BackgroundService
                     return;
                 }
 
+
+                IDataReader reader;
+                if (config.reader_type == "kas20") {
+                    reader = new KAS20DataReader(config.database_server, config.database_name, config.database_user, config.database_password, int.Parse(config.kas20_system_id));
+                }
+                else {
+                    reader = new SmartDispatchPlusV1Reader(config.database_server, config.database_name, config.database_user, config.database_password);
+                }
+
                 logger.Info("Starting up");
 
                 logger.Info("destination: " + config.destination);
@@ -57,11 +66,11 @@ public class RadioDataPumpService : BackgroundService
 
                 if (config.gundi_apikey != "")
                 {
-                    logger.Info("Gundi API key is set. Adding Gundi data pump.");
+                    logger.Info("Gundi API key is set. Adding Gundi data writer.");
 
-                    IDataWriter data_writer = config.gundi_apiversion == "2" ? new GundiV2DataWriter(config.destination, config.gundi_apikey) : new GundiDataWriter(config.destination, config.gundi_apikey);
+                    IDataWriter data_writer = new GundiV2DataWriter(config.destination, config.gundi_apikey);
                     var val = await dataPump.Run(
-                        new KAS20DataReader(config.connectionString, int.Parse(config.kas20_system_id)),
+                        reader,
                         data_writer,
                         stoppingToken);
                 }
@@ -69,7 +78,7 @@ public class RadioDataPumpService : BackgroundService
                 {
                     logger.Info("Using EarthRanger. Adding Gundi data pump.");
                     var val = await dataPump.Run(
-                        new KAS20DataReader(config.connectionString, int.Parse(config.kas20_system_id)),
+                        reader,
                         new EarthRangerDataWriter(config.destination, config.earthranger_auth_token, config.earthranger_provider_key), stoppingToken);
                 }
 
