@@ -31,7 +31,7 @@ namespace DataPump
 
                     await writer.PostObservation(item);
 
-                    lower_date = item.updated_at > lower_date ? item.updated_at : lower_date;
+                    lower_date = item.cursor_at > lower_date ? item.cursor_at : lower_date;
                 }
 
                 await Task.Delay(this._intervalMs).ContinueWith(_ => logger.Debug("Tick."));
