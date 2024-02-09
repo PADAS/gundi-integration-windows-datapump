@@ -2,5 +2,5 @@
 
 public interface IDataWriter
 {
-    Task<int> PostObservation(KenwoodGpsLogRecord record);
+    Task<int> PostObservation(ISourceRecord record);
 }

@@ -17,7 +17,8 @@ namespace worker
         public string? connectionString { 
             // This is a convenience property that that builds a connection string from the other properties.
             get {
-                return $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
+
+                  return $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
             } 
         }
 
@@ -29,7 +30,10 @@ namespace worker
         public string? earthranger_auth_token { get; set; }
         public string? gundi_apikey { get; set; }
         public string? gundi_apiversion { get; set; }
-        public string? kas20_system_id { get; set; }    
+        public string? kas20_system_id { get; set; }   
+        public string? reader_type { get; set; }
+
+
     }
 
     public class AppSettingsManager : IDisposable
