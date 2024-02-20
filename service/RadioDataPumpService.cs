@@ -52,11 +52,17 @@ public class RadioDataPumpService : BackgroundService
 
 
                 IDataReader reader;
-                if (config.reader_type == "kas20") {
+                if (config.reader_type == RadioServiceConfiguration.ReaderType.KAS20.ToString()) {
                     reader = new KAS20DataReader(config.database_server, config.database_name, config.database_user, config.database_password, int.Parse(config.kas20_system_id));
                 }
-                else {
-                    reader = new SmartDispatchPlusV1Reader(config.database_server, config.database_name, config.database_user, config.database_password);
+                else if (config.reader_type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus.ToString())
+                {
+                    reader = new SmartDispatchPlusV1Reader(config.database_server, config.database_name, config.database_user, config.database_password, config.database_schema);
+                }
+                else
+                {
+                    logger.Error("Stubbornly refusing to run. Unknown reader type: " + config.reader_type);
+                    return;
                 }
 
                 logger.Info("Starting up");
