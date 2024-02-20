@@ -143,9 +143,9 @@ public class SmartDispatchPlusV1Reader : IDataReader
     private int counter = 0;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
-    public SmartDispatchPlusV1Reader(string database_server, string database_name, string database_user, string database_password)
+    public SmartDispatchPlusV1Reader(string database_server, string database_name, string database_user, string database_password, string database_schema)
     {
-        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};";    
+        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;";    
     }
 
 

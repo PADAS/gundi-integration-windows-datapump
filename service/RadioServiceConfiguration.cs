@@ -26,6 +26,8 @@ namespace worker
         public string? database_name { get; set; }
         public string? database_user { get; set; }
         public string? database_password { get; set; }
+        public string? database_schema { get; set; }
+
         public string? earthranger_provider_key { get; set; }
         public string? earthranger_auth_token { get; set; }
         public string? gundi_apikey { get; set; }
@@ -33,6 +35,12 @@ namespace worker
         public string? kas20_system_id { get; set; }   
         public string? reader_type { get; set; }
 
+        // Define an enum for coffee types
+        public enum ReaderType
+        {
+            KAS20,
+            SmartDispatchPlus
+        }
 
     }
 
