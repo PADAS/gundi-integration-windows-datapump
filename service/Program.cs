@@ -13,7 +13,7 @@ internal class Program
     {
         using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
         {
-            WindowsPrincipal principal = new WindowsPrincipal(identity);
+            WindowsPrincipal principal = new(identity);
             return principal.IsInRole(WindowsBuiltInRole.Administrator);
         }
     }
@@ -94,37 +94,88 @@ internal class Program
                     var settings = appSettingsManager.LoadValue();
                     var config = settings.RadioServiceConfiguration;
 
+
+                    var readerTypes = new Dictionary<int, string>
+                    {
+                        { 1, RadioServiceConfiguration.ReaderType.KAS20.ToString() },
+                        { 2, RadioServiceConfiguration.ReaderType.SmartDispatchPlus.ToString() }
+                    };
+
                     while (true)
                     {
-                        Console.Write($"Enter the destination [{config.destination}]: ");
+                        Console.Write($"\nEnter the destination [{config.destination}]: ");
                         string? val = Console.ReadLine().Trim();
                         config.destination = val != "" ? val : config.destination;
 
-                        Console.Write($"Enter your Gundi API Key [{config.gundi_apikey}]: ");
+                        Console.Write($"\nEnter your Gundi API Key [{config.gundi_apikey}]: ");
                         val = Console.ReadLine().Trim();
                         config.gundi_apikey = val != "" ? val : config.gundi_apikey;
 
+
+                        Console.Write($"\nChoose a source system [{config.reader_type}]:\n");
+                        foreach (var readerType in readerTypes)
+                        {
+                            Console.WriteLine($"{readerType.Key}. {readerType.Value}");
+                        }
+                        while (true)
+                        {
+                            if (int.TryParse(Console.ReadLine(), out int choice) && readerTypes.ContainsKey(choice))
+                            {
+                                Console.WriteLine($"You chose \"{readerTypes[choice]}\".");
+                                config.reader_type = readerTypes[choice];
+                                break;
+                            }
+                            else
+                            {
+                                Console.WriteLine("That's not a valid choice. Please choose a number from the list above.");
+                            }
+                        }
+
                         config.database_server ??= "localhost";
-                        Console.Write($"Enter your KAS20 Database Server [{config.database_server}]: ");
+                        Console.Write($"\nEnter your {config.reader_type} Database Server [{config.database_server}]: ");
                         val = Console.ReadLine().Trim();
                         config.database_server = val != "" ? val : config.database_server;
 
                         config.database_name ??= "KAS20";
-                        Console.Write($"Enter your KAS20 Database Name [{config.database_name}]: ");
+                        Console.Write($"\nEnter your {config.reader_type} Database Name [{config.database_name}]: ");
                         val = Console.ReadLine().Trim();
                         config.database_name = val != "" ? val : config.database_name;
 
+                        if (config.reader_type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus.ToString())
+                        {
+                            config.database_schema ??= "public";
+                            Console.Write($"\nEnter your {config.reader_type} database schema [{config.database_schema}]: ");
+                            val = Console.ReadLine().Trim();
+                            config.database_schema = val != "" ? val : config.database_schema;
+                        }
+                        else
+                        {
+                            config.database_schema = null;
+                        }
+
+                        if (config.reader_type == RadioServiceConfiguration.ReaderType.KAS20.ToString())
+                        {
+                            config.kas20_system_id ??= "1";
+                            Console.Write($"\nEnter your {config.reader_type} System ID [{config.kas20_system_id}]: ");
+                            val = Console.ReadLine().Trim();
+                            config.kas20_system_id = val != "" ? val : config.kas20_system_id;
+                        }
+                        else
+                        {
+                            config.kas20_system_id = null;
+                        }   
+
                         config.database_user ??= "KAS20Admin";
-                        Console.Write($"Enter your KAS20 Database User [{config.database_user}]: ");
+                        Console.Write($"\nEnter your {config.reader_type} Database User [{config.database_user}]: ");
                         val = Console.ReadLine().Trim();
                         config.database_user = val != "" ? val : config.database_user;
 
                         config.database_password ??= "a password";
-                        Console.Write($"Enter your KAS20 Database Password [{config.database_password}]: ");
+                        Console.Write($"\nEnter your {config.reader_type} Database Password [{config.database_password}]: ");
                         val = Console.ReadLine().Trim();
                         config.database_password = val != "" ? val : config.database_password;
 
-                        Console.WriteLine("Press enter to save and exit, 'r' to redo, or 'q' to exit without saving.");
+                        Console.WriteLine("\nPress enter to save and exit.\nType 'r' to redo, or 'q' to exit without saving.");
                         val = Console.ReadLine().Trim();
                         if (val == "q")
                         {
@@ -132,6 +183,7 @@ internal class Program
                         }
                         else if (val == "r")
                         {
+                            Console.Clear();
                             continue;
                         }
                         break;
