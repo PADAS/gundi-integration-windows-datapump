@@ -70,7 +70,7 @@ namespace DataPumpModels
             return new GundiV2Observation
             {
                 recorded_at = happentime,
-                source = "SmartDispatchPlusV1",
+                source = deviceid.ToString(),
                 source_name = device_alias,
                 type = "location",
                 location = new GundiV2Location
@@ -112,7 +112,7 @@ namespace DataPumpModels
     public decimal longitude { get; set; }
     public int system_id { get; set; }
 
-        public DateTime cursor_at => throw new NotImplementedException();
+        public DateTime cursor_at => recorded_at;
 
         public EarthRangerObservation ToEarthRangerObservation()
         {
