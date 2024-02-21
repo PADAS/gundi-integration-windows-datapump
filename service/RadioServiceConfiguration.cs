@@ -11,8 +11,8 @@ namespace worker
 {
     public class RadioServiceConfiguration
     {
-        public string? destination { get; set; }
-        public string? intervalMs { get; set; }
+        public string? destination { get; set; } = "https://sensors.api.gundiservice.org";
+        public string? intervalMs { get; set; } = "5000";
         [JsonIgnore]
         public string? connectionString { 
             // This is a convenience property that that builds a connection string from the other properties.
@@ -22,7 +22,7 @@ namespace worker
             } 
         }
 
-        public string? database_server { get; set; }
+        public string? database_server { get; set; } = "localhost";
         public string? database_name { get; set; }
         public string? database_user { get; set; }
         public string? database_password { get; set; }
@@ -97,7 +97,8 @@ namespace worker
                                     {"Default", "Information"},
                                     {"Microsoft.Hosting.Lifetime", "Information" }
                                 } 
-                         }
+                         },
+                        RadioServiceConfiguration = new ()
                         
                     }; // You can customize this to initialize the state.
 
