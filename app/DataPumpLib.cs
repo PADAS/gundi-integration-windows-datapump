@@ -206,8 +206,8 @@ public class SmartDispatchPlusV1Reader : IDataReader
                         };
 
                         // Timestamps are naive in the database.
-                        item.recvgpstime = DateTime.SpecifyKind(item.recvgpstime, DateTimeKind.Utc);
-                        item.happentime = DateTime.SpecifyKind(item.happentime, DateTimeKind.Utc);
+                        item.recvgpstime = DateTime.SpecifyKind(item.recvgpstime, DateTimeKind.Local);
+                        item.happentime = DateTime.SpecifyKind(item.happentime, DateTimeKind.Local);
 
 
                         // Advance cursor in state.
