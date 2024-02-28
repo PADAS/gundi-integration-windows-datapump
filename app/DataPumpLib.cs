@@ -16,7 +16,6 @@ public class KAS20DataReader : IDataReader
 {
 
     private string _connectionString;
-    private int _kas20_system_id;
     private int counter = 0;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
@@ -24,7 +23,7 @@ public class KAS20DataReader : IDataReader
     {
 
         _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
-        _kas20_system_id = kas20_system_id;
+    
     }
 
 
@@ -57,7 +56,6 @@ public class KAS20DataReader : IDataReader
             " speed, unit_id, global_id, name, created_date, updated_date" +
             " from GpsLog" +
             " where date_time > @lower_date" +
-            " and system_id = @kas20_system_id" +
             " and gps_index > @latest_gps_index" +
             " order by date_time asc;";
     
@@ -67,7 +65,6 @@ public class KAS20DataReader : IDataReader
         using (SqlCommand command = new SqlCommand(query, connection))
         {
             command.Parameters.AddWithValue("@lower_date", lower_date);
-            command.Parameters.AddWithValue("@kas20_system_id", _kas20_system_id);
             command.Parameters.AddWithValue("@latest_gps_index", state.latest_gps_index);
 
             using (SqlDataReader reader = command.ExecuteReader())

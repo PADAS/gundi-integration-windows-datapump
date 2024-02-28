@@ -123,7 +123,7 @@ namespace DataPumpModels
             observation.location = location;
 
             observation.subject_name = name;
-            observation.manufacturer_id = unit_id.ToString();
+            observation.manufacturer_id = $"kas20-{system_id}-{unit_id}";
             observation.recorded_at = recorded_at;
 
             observation.additional = new Dictionary<string, object>()
@@ -146,8 +146,8 @@ namespace DataPumpModels
     {
             return new GundiV2Observation
             {
-                recorded_at = this.recorded_at,
-                source = this.unit_id.ToString(),
+                recorded_at = recorded_at,
+                source = $"kas20-{system_id}-{unit_id}",
                 source_name = this.name,
                 type = "gps-radio",
                 location = new GundiV2Location
