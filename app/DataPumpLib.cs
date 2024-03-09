@@ -235,6 +235,124 @@ public class SmartDispatchPlusV1Reader : IDataReader
     }
 }
 
+public class SmartOneDispatchReader : IDataReader
+{
+
+    private string _connectionString;
+    private int _kas20_system_id;
+    private int counter = 0;
+
+    private static Logger logger = LogManager.GetCurrentClassLogger();
+    public SmartOneDispatchReader(string database_server, string database_name, string database_user, string database_password, string database_schema)
+    {
+        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;";
+    }
+
+
+
+    async public IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date)
+    {
+        using DataPump.StateHandler state_handler = new DataPump.StateHandler("state.json");
+        DataPump.State state = state_handler.LoadState();
+
+
+        NpgsqlConnection connection = new NpgsqlConnection(this._connectionString);
+
+        // Note: "lontitude" is the name of the longitude column.
+        var query = @"SELECT t1.device_alias, t1.car_make, t1.car_license_plate, t1.device_number,
+                             t0.guid, t0.puc_id, t0.system_id, t0.device_id, t0.device_alias, t0.number_type,
+                             t0.device_type, t0.staff_code, t0.gps_datetime, t0.gps_av, t0.long_we, t0.longitude,
+                             t0.lat_ns, t0.latitude, t0.speed, t0.direction,
+                             t0.state, t0.receive_datetime, t0.tsc_id, t0.channel_id, t0.rssi_up, 
+                             t0.rssi_down, t0.power_mode, t0.electricity
+                        FROM dbo.gps_location_data_base t0
+                            join dbo.device_info t1 on t0.device_id = t1.device_id 
+                                 and t0.puc_id = t1.puc_id
+		                         and t0.system_id = t1.system_id
+                       WHERE t0.receive_datetime > @lower_date
+                       ORDER BY t0.receive_datetime asc
+                       LIMIT 1000;";
+
+
+
+        connection.Open();
+
+
+        using (NpgsqlCommand command = new NpgsqlCommand(query, connection))
+        {
+            command.Parameters.AddWithValue("@lower_date", DateTime.SpecifyKind(lower_date, DateTimeKind.Unspecified));
+
+            using (NpgsqlDataReader reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    SmartOneDispatchRecord item = null;
+                    try
+                    {
+
+                        item = new SmartOneDispatchRecord
+                        {
+                            latitude = reader.GetDouble(reader.GetOrdinal("latitude")),
+                            longitude = reader.GetDouble(reader.GetOrdinal("longitude")),
+                            device_id = reader.GetString(reader.GetOrdinal("device_id")),
+                            device_alias = reader.GetString(reader.GetOrdinal("device_alias")),
+                            car_make = reader.GetString(reader.GetOrdinal("car_make")),
+                            car_license_plate = reader.GetString(reader.GetOrdinal("car_license_plate")),
+                            device_number = reader.GetString(reader.GetOrdinal("device_number")),
+                            guid = reader.GetString(reader.GetOrdinal("guid")),
+                            puc_id = reader.GetString(reader.GetOrdinal("puc_id")),
+                            system_id = reader.GetString(reader.GetOrdinal("system_id")),
+                            number_type = reader.GetInt32(reader.GetOrdinal("number_type")),
+                            device_type = reader.GetInt32(reader.GetOrdinal("device_type")),
+
+
+                            staff_code = reader.GetString(reader.GetOrdinal("staff_code")),
+                            gps_datetime = reader.GetDateTime(reader.GetOrdinal("gps_datetime")),
+                            gps_av = reader.GetString(reader.GetOrdinal("gps_av")),
+                            long_we = reader.GetString(reader.GetOrdinal("long_we")),
+                            lat_ns = reader.GetString(reader.GetOrdinal("lat_ns")),
+                            speed = reader.GetDouble(reader.GetOrdinal("speed")),
+                            direction = reader.GetDouble(reader.GetOrdinal("direction")),
+                            state = reader.GetString(reader.GetOrdinal("state")),
+                            receive_datetime = reader.GetDateTime(reader.GetOrdinal("receive_datetime")),
+                            tsc_id = reader.GetInt32(reader.GetOrdinal("tsc_id")),
+                            channel_id = reader.GetInt32(reader.GetOrdinal("channel_id")),
+                            rssi_up = reader.GetInt32(reader.GetOrdinal("rssi_up")),
+                            rssi_down = reader.GetInt32(reader.GetOrdinal("rssi_down")),
+                            power_mode = reader.GetInt32(reader.GetOrdinal("power_mode")),
+                            electricity = reader.GetInt32(reader.GetOrdinal("electricity"))
+                        };
+
+                        item.latitude = item.lat_ns.Equals("S", StringComparison.OrdinalIgnoreCase) ? Math.Abs(item.latitude) * -1 : item.latitude;
+                        item.longitude = item.long_we.Equals("W", StringComparison.OrdinalIgnoreCase) ? Math.Abs(item.longitude) * -1 : item.longitude;
+                        // Timestamps are naive in the database.
+                        item.receive_datetime = DateTime.SpecifyKind(item.receive_datetime, DateTimeKind.Local);
+                        item.gps_datetime = DateTime.SpecifyKind(item.gps_datetime, DateTimeKind.Local);
+
+                    }
+                    catch (NpgsqlException e)
+                    {
+                        logger.Warn("Failed parsing a result from querying SmartDispatchPlusV1 Database: " + e.Message);
+                    }
+
+
+                    if (item != null)
+                    {
+                        yield return item;
+                    }
+
+
+                }
+            }
+
+
+        }
+
+        connection.Close();
+
+    }
+}
+
 public class GundiV2DataWriter : IDataWriter
 {
     private readonly HttpClient _httpClient;

@@ -98,7 +98,8 @@ internal class Program
                     var readerTypes = new Dictionary<int, string>
                     {
                         { 1, RadioServiceConfiguration.ReaderType.KAS20.ToString() },
-                        { 2, RadioServiceConfiguration.ReaderType.SmartDispatchPlus.ToString() }
+                        { 2, RadioServiceConfiguration.ReaderType.SmartDispatchPlus.ToString() },
+                        { 3, RadioServiceConfiguration.ReaderType.SmartOneDispatch.ToString() }
                     };
 
                     while (true)
@@ -141,7 +142,9 @@ internal class Program
                         val = Console.ReadLine().Trim();
                         config.database_name = val != "" ? val : config.database_name;
 
-                        if (config.reader_type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus.ToString())
+                        List<string> things = new List<string> { RadioServiceConfiguration.ReaderType.SmartDispatchPlus.ToString(), 
+                                                   RadioServiceConfiguration.ReaderType.SmartOneDispatch.ToString() };
+                        if (things.Contains(config.reader_type))
                         {
                             config.database_schema ??= "public";
                             Console.Write($"\nEnter your {config.reader_type} database schema [{config.database_schema}]: ");

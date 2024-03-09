@@ -95,10 +95,119 @@ namespace DataPumpModels
                 }
             };
         }
-    }       
+    }
+
+    public class SmartOneDispatchRecord : ISourceRecord
+    {
+
+        public string device_alias { get; set; }
+        public string car_make { get; set; }
+        public string car_license_plate { get; set; }
+        public string device_number { get; set; }
+        public string guid { get; set; }
+        public string puc_id { get; set; }
+        public string system_id { get; set; }
+        public string device_id { get; set; }
+        public int number_type { get; set; }
+        public int device_type { get; set; }
+        public string staff_code { get; set; }
+        public DateTime gps_datetime { get; set; }
+        public string gps_av { get; set; }
+        public string long_we { get; set; }
+        public double longitude { get; set; }
+        public string lat_ns { get; set; }
+        public double latitude { get; set; }
+        public double speed { get; set; }
+        public double direction { get; set; }
+        public string state { get; set; }
+        public DateTime receive_datetime { get; set; }
+        public int tsc_id { get; set; }
+        public int channel_id { get; set; }
+        public int rssi_up { get; set; }
+        public int rssi_down { get; set; }
+        public int power_mode { get; set; }
+        public int electricity { get; set; }
+
+        public DateTime cursor_at => receive_datetime;
+
+        public EarthRangerObservation ToEarthRangerObservation()
+        {
+
+            var observation = new EarthRangerObservation();
+            //var location = new EarthRangerLocation();
+            //location.lat = (decimal)latitude;
+            //location.lon = (decimal)longitude;
+            //observation.location = location;
+
+            //observation.subject_name = device_alias;
+            //observation.manufacturer_id = device_id.ToString();
+            //observation.recorded_at = gps_datetime.spe;
+
+            //observation.additional = new Dictionary<string, object>
+            //    {
+            //        { "recvgpstime", recvgpstime },
+            //        { "id", id },
+            //        { "speed", speed },
+            //        { "deviceid", deviceid },
+            //        { "deviceguid", deviceguid },
+            //        { "gpscontext", gpscontext },
+            //        { "gpstype", gpstype },
+            //        { "streetname", streetname },
+            //        { "rssi", rssi },
+            //        { "direction", direction },
+            //        { "activeflag", activeflag },
+            //        { "description", description }
+            //    };
+
+            return observation;
+
+        }
+
+        public GundiV2Observation ToGundiV2Observation()
+        {
+            return new GundiV2Observation
+            {
+                recorded_at = gps_datetime,
+                source = $"smartone-{system_id}-{device_id}",
+                source_name = device_alias,
+                type = "gps-radio",
+                location = new GundiV2Location
+                {
+                    lat = (decimal)latitude,
+                    lon = (decimal)longitude
+                },
+                additional = new Dictionary<string, object>
+                {
+                    { "receive_datetime", receive_datetime },
+                    { "device_alias", device_alias },
+                    { "car_make", car_make },
+                    { "car_license_plate", car_license_plate },
+                    { "device_number", device_number },
+                    { "guid", guid },
+                    { "puc_id", puc_id },
+                    { "system_id", system_id },
+                    { "device_id", device_id },
+                    { "number_type", number_type },
+                    { "device_type", device_type },
+                    { "staff_code", staff_code },
+                    { "gps_av", gps_av },
+                    { "long_we", long_we },
+                    { "lat_ns", lat_ns },
+                    { "speed", speed },
+                    { "direction", direction },
+                    { "state", state },
+                    { "tsc_id", tsc_id },
+                    { "channel_id", channel_id },
+                    { "rssi_up", rssi_up },
+                    { "rssi_down", rssi_down },
+                    { "power_mode", power_mode },
+                    { "electricity", electricity }
+                }
+            };
+        }
+    }
 
 
-   
     public class KenwoodGpsLogRecord : ISourceRecord
 {
     public string name { get; set; }

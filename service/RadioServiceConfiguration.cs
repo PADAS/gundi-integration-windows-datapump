@@ -42,7 +42,8 @@ namespace worker
         public enum ReaderType
         {
             KAS20,
-            SmartDispatchPlus
+            SmartDispatchPlus,
+            SmartOneDispatch
         }
 
     }
