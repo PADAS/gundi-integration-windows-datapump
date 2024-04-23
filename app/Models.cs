@@ -58,7 +58,8 @@ namespace DataPumpModels
                     { "rssi", rssi },
                     { "direction", direction },
                     { "activeflag", activeflag },
-                    { "description", description }
+                    { "description", description },
+                    { "subject_name", device_alias }
                 };
 
             return observation;
@@ -91,7 +92,8 @@ namespace DataPumpModels
                     { "rssi", rssi },
                     { "direction", direction },
                     { "activeflag", activeflag },
-                    { "description", description }
+                    { "description", description },
+                    { "subject_name", device_alias }
                 }
             };
         }
@@ -201,7 +203,8 @@ namespace DataPumpModels
                     { "rssi_up", rssi_up },
                     { "rssi_down", rssi_down },
                     { "power_mode", power_mode },
-                    { "electricity", electricity }
+                    { "electricity", electricity },
+                    { "subject_name", device_alias }
                 }
             };
         }
@@ -242,7 +245,8 @@ namespace DataPumpModels
                 { "n_s", n_s },
                 { "created_at", created_at },
                 { "updated_at", updated_at},
-                { "unit_id", unit_id }
+                { "unit_id", unit_id },
+                { "subject_name", name }
 
             };
 
@@ -267,11 +271,13 @@ namespace DataPumpModels
                 additional = new Dictionary<string, object>
                 {
                     { "system_id", this.system_id },
+                    { "source_name", name },
                     {"e_w", this.e_w },
                     { "n_s", this.n_s },
                     {"created_at", this.created_at },
                     {"updated_at", this.updated_at},
-                    {"unit_id", this.unit_id }
+                    {"unit_id", this.unit_id },
+                    {"subject_name", name }
                 }
             };
         }

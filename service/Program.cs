@@ -195,6 +195,10 @@ internal class Program
                     appSettingsManager.SaveValue();
 
                 }
+                else
+                {
+                    Console.WriteLine("Invalid argument. Use /install, /uninstall, or /configure.");
+                }
             }
             catch (Exception ex)
             {
