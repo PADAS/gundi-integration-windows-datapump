@@ -53,7 +53,7 @@ public class RadioDataPumpService : BackgroundService
 
                 IDataReader reader;
                 if (config.reader_type == RadioServiceConfiguration.ReaderType.KAS20.ToString()) {
-                    reader = new KAS20DataReader(config.database_server, config.database_name, config.database_user, config.database_password, int.Parse(config.kas20_system_id));
+                    reader = new KAS20DataReader(config.database_server, config.database_name, config.database_user, config.database_password);
                 }
                 else if (config.reader_type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus.ToString())
                 {
@@ -62,6 +62,10 @@ public class RadioDataPumpService : BackgroundService
                 else if (config.reader_type == RadioServiceConfiguration.ReaderType.SmartOneDispatch.ToString())
                 {
                     reader = new SmartOneDispatchReader(config.database_server, config.database_name, config.database_user, config.database_password, config.database_schema);
+                }
+                else if (config.reader_type == RadioServiceConfiguration.ReaderType.TrbonetPlus.ToString())
+                {
+                    reader = new TrbonetPlusDataReader(config.database_server, config.database_name, config.database_user, config.database_password);
                 }
                 else
                 {

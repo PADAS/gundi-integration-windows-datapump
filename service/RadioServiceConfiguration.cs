@@ -35,7 +35,6 @@ namespace worker
         public string? earthranger_auth_token { get; set; }
         public string? gundi_apikey { get; set; }
         public string? gundi_apiversion { get; set; }
-        public string? kas20_system_id { get; set; }   
         public string? reader_type { get; set; }
 
         // Define an enum for coffee types
@@ -43,7 +42,8 @@ namespace worker
         {
             KAS20,
             SmartDispatchPlus,
-            SmartOneDispatch
+            SmartOneDispatch,
+            TrbonetPlus
         }
 
     }

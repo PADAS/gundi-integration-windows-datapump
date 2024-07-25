@@ -68,7 +68,7 @@ internal class Program
                     result = await Cli.Wrap("sc").WithArguments(new[] {
                     "description",
                     service_name,
-                    "A Gundi/EarthRanger service that reads radio location data from KAS20 database." }).ExecuteAsync();
+                    "A Gundi/EarthRanger service that reads radio location data from a local database." }).ExecuteAsync();
 
                     result = await Cli.Wrap("sc").WithArguments(new[] {
                     "start",
@@ -99,7 +99,8 @@ internal class Program
                     {
                         { 1, RadioServiceConfiguration.ReaderType.KAS20.ToString() },
                         { 2, RadioServiceConfiguration.ReaderType.SmartDispatchPlus.ToString() },
-                        { 3, RadioServiceConfiguration.ReaderType.SmartOneDispatch.ToString() }
+                        { 3, RadioServiceConfiguration.ReaderType.SmartOneDispatch.ToString() },
+                        { 4, RadioServiceConfiguration.ReaderType.TrbonetPlus.ToString() }
                     };
 
                     while (true)
@@ -155,18 +156,6 @@ internal class Program
                         {
                             config.database_schema = null;
                         }
-
-                        if (config.reader_type == RadioServiceConfiguration.ReaderType.KAS20.ToString())
-                        {
-                            config.kas20_system_id ??= "1";
-                            Console.Write($"\nEnter your {config.reader_type} System ID [{config.kas20_system_id}]: ");
-                            val = Console.ReadLine().Trim();
-                            config.kas20_system_id = val != "" ? val : config.kas20_system_id;
-                        }
-                        else
-                        {
-                            config.kas20_system_id = null;
-                        }   
 
                         config.database_user ??= "KAS20Admin";
                         Console.Write($"\nEnter your {config.reader_type} Database User [{config.database_user}]: ");

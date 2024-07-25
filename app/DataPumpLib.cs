@@ -19,7 +19,7 @@ public class KAS20DataReader : IDataReader
     private int counter = 0;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
-    public KAS20DataReader(string database_server, string database_name, string database_user, string database_password, int kas20_system_id)
+    public KAS20DataReader(string database_server, string database_name, string database_user, string database_password)
     {
 
         _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
@@ -125,6 +125,129 @@ public class KAS20DataReader : IDataReader
             }
 
            
+        }
+
+        connection.Close();
+
+    }
+}
+
+public class TrbonetPlusDataReader : IDataReader
+{
+
+    private string _connectionString;
+    private int counter = 0;
+
+    private static Logger logger = LogManager.GetCurrentClassLogger();
+    public TrbonetPlusDataReader(string database_server, string database_name, string database_user, string database_password)
+    {
+
+        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
+
+    }
+
+
+
+
+    async public IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date)
+    {
+        using DataPump.StateHandler state_handler = new DataPump.StateHandler("state.json");
+        DataPump.State state = state_handler.LoadState();
+
+
+        SqlConnection connection = new SqlConnection(this._connectionString);
+        var query = "SELECT TOP (1000) g.id " +
+                    ", g.device_id " +
+	                  " ,d.name " +
+                      " ,g.date " +
+                      " ,g.dateUtc " +
+                      " ,g.active " +
+                      " ,g.longitude " +
+                      " ,g.latitude " +
+                      " ,g.altitude " +
+                      " ,g.radius " +
+                      " ,g.direction " +
+                      " ,g.speed " +
+                      " ,g.description " +
+                      " ,g.rssi " + 
+                      " ,g.reportId " +
+                      " ,g.gpsSource " +
+                      " FROM [GpsInfo] g " +
+                      " JOIN [Devices] d " +
+                      "     on g.device_id = d.id " + 
+                      " WHERE g.dateUtc > @lower_date" +
+                      " and g.id > @latest_gps_index" +
+                      " and g.dateUtc is not null " +
+                      " order by id asc; ";
+
+        connection.Open();
+
+
+        using (SqlCommand command = new SqlCommand(query, connection))
+        {
+            command.Parameters.AddWithValue("@lower_date", lower_date);
+            command.Parameters.AddWithValue("@latest_gps_index", state.latest_gps_index);
+
+            using (SqlDataReader reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    TrbonetPlusRecord item = null;
+                    try
+                    {
+                        int id = reader.GetInt32(reader.GetOrdinal("id"));
+                        DateTime dateUtc = reader.GetDateTime(reader.GetOrdinal("dateUtc"));
+                        DateTime recorded_at = DateTime.SpecifyKind(dateUtc, DateTimeKind.Utc);
+                        string name = reader.GetString(reader.GetOrdinal("name"));
+                        int device_id = reader.GetInt32(reader.GetOrdinal("device_id"));
+
+                        double stored_latitude = reader.GetDouble(reader.GetOrdinal("latitude"));
+                        double stored_longitude = reader.GetDouble(reader.GetOrdinal("longitude"));
+
+                        decimal latitude = decimal.Round((decimal)stored_latitude, 5);
+                        decimal longitude = decimal.Round((decimal)stored_longitude, 5);
+                        
+                        double altitude = reader.GetDouble(reader.GetOrdinal("altitude"));
+                        double radius = reader.GetDouble(reader.GetOrdinal("radius"));
+                        int direction = reader.GetInt32(reader.GetOrdinal("direction"));
+                        double speed = reader.GetDouble(reader.GetOrdinal("speed"));
+                        double rssi = reader.GetDouble(reader.GetOrdinal("rssi"));
+                        string description = reader.GetString(reader.GetOrdinal("description"));
+                        int reportId = reader.GetInt32(reader.GetOrdinal("reportId"));
+                        int gpsSource = reader.GetByte(reader.GetOrdinal("gpsSource"));
+                        item = new TrbonetPlusRecord();
+
+                        item.name = name;
+                        item.device_id = device_id;
+                        item.recorded_at = recorded_at;
+                        item.latitude = latitude;
+                        item.longitude = longitude;
+                        item.gpsSource = gpsSource;
+                        item.reportId = reportId;
+                        item.altitude = altitude;
+                        item.speed = speed;
+                        item.radius = radius;
+                        item.direction = direction;
+
+                        // Advance cursor in state.
+                        state.latest_gps_index = (long)id;
+
+                    }
+                    catch (SqlNullValueException e)
+                    {
+                        logger.Warn("Null value found in GpsLog record. exception: " + e.Message);
+                    }
+
+                    if (item != null)
+                    {
+                        yield return item;
+                    }
+
+
+                }
+            }
+
+
         }
 
         connection.Close();

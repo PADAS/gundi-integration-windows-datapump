@@ -212,7 +212,7 @@ namespace DataPumpModels
 
 
     public class KenwoodGpsLogRecord : ISourceRecord
-{
+   {
     public string name { get; set; }
     public long unit_id { get; set; }
     public string e_w { get; set; }
@@ -283,6 +283,86 @@ namespace DataPumpModels
         }
     }
 
+    public class TrbonetPlusRecord : ISourceRecord
+    {
+        public long id { get; set; }
+        public DateTime recorded_at { get; set; }
+        public string name { get; set; }
+        public int device_id { get; set; }
+
+        public decimal latitude { get; set; }
+        public decimal longitude { get; set; }
+
+        public int gpsSource { get; set; }
+        public int reportId { get; set; }
+        public double altitude { get; set; }
+        public double speed { get; set; }
+        public int direction { get; set; }
+        public double rssi { get; set; }
+        public double radius { get; set; }
+
+        public DateTime cursor_at => recorded_at;
+
+        public EarthRangerObservation ToEarthRangerObservation()
+        {
+            var observation = new EarthRangerObservation();
+            var location = new EarthRangerLocation();
+            location.lat = latitude;
+            location.lon = longitude;
+            observation.location = location;
+
+            observation.subject_name = name;
+            observation.manufacturer_id = $"trbonetplus-{device_id}";
+            observation.recorded_at = recorded_at;
+
+            observation.additional = new Dictionary<string, object>()
+            {
+                { "speed", speed },
+                { "radius", radius },
+                { "direction", direction },
+                { "rssi", rssi },
+                { "altitude", altitude },
+                { "gpsSource", gpsSource },
+                { "reportId", reportId },
+                { "device_id", device_id },
+                { "subject_name", name }
+
+            };
+
+            return observation;
+
+
+        }
+
+        public GundiV2Observation ToGundiV2Observation()
+        {
+            return new GundiV2Observation
+            {
+                recorded_at = recorded_at,
+                source = $"trbonetplus-{device_id}",
+                source_name = name,
+                type = "gps-radio",
+                location = new GundiV2Location
+                {
+                    lat = latitude,
+                    lon = longitude
+                },
+                additional = new Dictionary<string, object>()
+                {
+                    { "speed", speed },
+                    { "radius", radius },
+                    { "direction", direction },
+                    { "rssi", rssi },
+                    { "altitude", altitude },
+                    { "gpsSource", gpsSource },
+                    { "reportId", reportId },
+                    { "device_id", device_id },
+                    { "subject_name", name }
+
+                }
+            };
+        }
+    }
 
 
     public class EarthRangerLocation
