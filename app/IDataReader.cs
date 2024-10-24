@@ -25,14 +25,13 @@ public interface IDataReader
 
 public class GroupAlias
 {
-    public string guid { get; set; }
-    public string alias { get; set; }
+    public required string guid { get; set; }
+    public required string alias { get; set; }
 }
 
 public class GroupKeyPair
 {
-    public string api_key { get; set; }
-    public string group_alias { get; set; }
-    public string group_guid { get; set; }
+    public required string api_key { get; set; }
+    public required string group_alias { get; set; }
+    public required string group_guid { get; set; }
 }
-

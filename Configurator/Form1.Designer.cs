@@ -2,7 +2,7 @@
 
 namespace Configurator
 {
-    partial class service_config_form
+    partial class RadioServiceConfigForm
     {
         /// <summary>
         ///  Required designer variable.
@@ -44,11 +44,12 @@ namespace Configurator
             button_add_id_pair = new Button();
             group_id_map_label = new Label();
             test_connection_button = new Button();
-            test_connection_status_lablel = new Label();
+            label_test_connection_status = new Label();
             database_name_label = new Label();
             database_name = new TextBox();
             database_schema_label = new Label();
             database_schema = new TextBox();
+            save_message_label = new Label();
             SuspendLayout();
             // 
             // database_hostname
@@ -124,7 +125,6 @@ namespace Configurator
             database_type.Name = "database_type";
             database_type.Size = new Size(266, 23);
             database_type.TabIndex = 0;
-            database_type.SelectedIndexChanged += AnyControl_ValueChanged;
             database_type.SelectedIndexChanged += database_type_SelectedIndexChanged;
             // 
             // label_database_type
@@ -184,15 +184,15 @@ namespace Configurator
             test_connection_button.UseVisualStyleBackColor = true;
             test_connection_button.Click += test_connection_button_Click;
             // 
-            // test_connection_status_lablel
+            // label_test_connection_status
             // 
-            test_connection_status_lablel.AutoSize = true;
-            test_connection_status_lablel.Location = new Point(47, 401);
-            test_connection_status_lablel.Name = "test_connection_status_lablel";
-            test_connection_status_lablel.Size = new Size(85, 15);
-            test_connection_status_lablel.TabIndex = 13;
-            test_connection_status_lablel.Text = "<placeholder>";
-            test_connection_status_lablel.Visible = false;
+            label_test_connection_status.AutoSize = true;
+            label_test_connection_status.Location = new Point(47, 401);
+            label_test_connection_status.Name = "label_test_connection_status";
+            label_test_connection_status.Size = new Size(85, 15);
+            label_test_connection_status.TabIndex = 13;
+            label_test_connection_status.Text = "<placeholder>";
+            label_test_connection_status.Visible = false;
             // 
             // database_name_label
             // 
@@ -228,16 +228,28 @@ namespace Configurator
             database_schema.TabIndex = 16;
             database_schema.TextChanged += AnyControl_ValueChanged;
             // 
+            // save_message_label
+            // 
+            save_message_label.AutoSize = true;
+            save_message_label.ForeColor = Color.Green;
+            save_message_label.Location = new Point(723, 434);
+            save_message_label.Name = "save_message_label";
+            save_message_label.Size = new Size(41, 15);
+            save_message_label.TabIndex = 17;
+            save_message_label.Text = "Saved.";
+            save_message_label.Visible = false;
+            // 
             // service_config_form
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(815, 450);
+            Controls.Add(save_message_label);
             Controls.Add(database_schema);
             Controls.Add(database_schema_label);
             Controls.Add(database_name);
             Controls.Add(database_name_label);
-            Controls.Add(test_connection_status_lablel);
+            Controls.Add(label_test_connection_status);
             Controls.Add(test_connection_button);
             Controls.Add(group_id_map_label);
             Controls.Add(button_add_id_pair);
@@ -259,188 +271,6 @@ namespace Configurator
         }
         #endregion
 
-        private void SaveToJson(string hostname, string username, string password,
-            string database_type, string database_name, string database_schema,
-            List<GroupKeyPair> groups)
-        {
-            // Create a JSON object
-            var config = new
-            {
-                Hostname = hostname,
-                Username = username,
-                Password = password,
-                DatabaseType = database_type,
-                DatabaseName = database_name,
-                DatabaseSchema = database_schema,
-                Groups = groups
-
-
-            };
-
-            // Serialize to JSON
-            string json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
-
-            // Write to a file
-            string filePath = "config.json";
-            File.WriteAllText(filePath, json);
-
-            MessageBox.Show("Configuration saved to " + filePath, "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
-
-        private void LoadFromJson()
-        {
-            string filePath = "config.json";
-
-            // Check if the file exists
-            if (File.Exists(filePath))
-            {
-                try
-                {
-                    // Read from the JSON file
-                    string json = File.ReadAllText(filePath);
-
-                    // Deserialize the JSON
-                    var config = JsonSerializer.Deserialize<Config>(json);
-
-                    // Populate form controls
-                    database_hostname.Text = config?.Hostname ?? string.Empty;
-                    database_username.Text = config?.Username ?? string.Empty;
-                    database_password.Text = config?.Password ?? string.Empty;
-                    database_name.Text = config?.DatabaseName ?? string.Empty;
-                    database_schema.Text = config?.DatabaseSchema ?? string.Empty;
-
-                    // Set the selected item for the ComboBox
-                    if (!string.IsNullOrEmpty(config?.DatabaseType) && database_type.Items.Contains(config.DatabaseType))
-                    {
-                        database_type.SelectedItem = config.DatabaseType;
-                    }
-
-                    //MessageBox.Show("Configuration loaded from " + filePath, "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Error loading configuration: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-            else
-            {
-                //MessageBox.Show("Configuration file not found.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-        }
-
-
-        private TextBox database_hostname;
-        private Label label1;
-        private Button button_save;
-        private Label label2;
-        private TextBox database_username;
-        private Label label3;
-        private TextBox database_password;
-        private ComboBox database_type;
-        private Label label_database_type;
-        private Button button_close;
-        private Panel panel_identifier_pairs;
-        private Button button_add_id_pair;
-        private List<PairTextBox> identifierPairs;
-        private Label group_id_map_label;
-        private Button test_connection_button;
-        private Label test_connection_status_lablel;
-        private Label database_name_label;
-        private TextBox database_name;
-        private Label database_schema_label;
-        private TextBox database_schema;
     }
 
-    public class Config
-    {
-        public string Hostname { get; set; }
-        public string Username { get; set; }
-        public string Password { get; set; }
-        public string DatabaseName { get; set; }
-        public string DatabaseType { get; set; }
-        public string DatabaseSchema { get; set; }
-        public List<GroupKeyPair> Groups { get; set; }
-    }
-
-    public class PairTextBox
-    {
-        public Label GroupAliasLabel { get; set; }
-        public TextBox GroupAliasTextBox { get; set; }
-        public Label GundiApiKeyLabel { get; set; }
-        public TextBox GundiApiKeyTextBox { get; set; }
-        public Button DeletePairButton { get; set; }
-        private int top_offset;
-        public int TopOffset
-        {
-            get { return top_offset; }
-
-            set
-            {
-                top_offset = value;
-                GroupAliasLabel.Top = top_offset;
-                GroupAliasTextBox.Top = top_offset;
-                GundiApiKeyLabel.Top = top_offset + 30;
-                GundiApiKeyTextBox.Top = top_offset + 30;
-                DeletePairButton.Top = top_offset;
-            }
-        }
-
-        public PairTextBox(int index)
-        {
-            var top_offset = index * 60;
-            // Initialize the source identifier label
-            GroupAliasLabel = new Label()
-            {
-                Text = "Group Alias",
-                Top = top_offset,
-                Left = 10,
-                Width = 100
-            };
-
-            // Initialize the source identifier textbox
-            GroupAliasTextBox = new TextBox()
-            {
-                Top = top_offset,
-                Left = 130,
-                Width = 160
-            };
-
-            // Initialize the destination identifier label
-            GundiApiKeyLabel = new Label()
-            {
-                Text = "Gundi API Key",
-                Top = top_offset + 30,
-                Left = 10,
-                Width = 100
-            };
-
-            // Initialize the destination identifier textbox
-            GundiApiKeyTextBox = new TextBox()
-            {
-                Top = top_offset + 30,
-                Left = 130,
-                Width = 160
-            };
-
-            DeletePairButton = new Button()
-            {
-                Text = "Remove",
-                Top = top_offset,
-                Left = 300,
-                Width = 90
-            };
-
-            DeletePairButton.Click += (sender, e) =>
-            {
-                GroupAliasLabel.Dispose();
-                GroupAliasTextBox.Dispose();
-                GundiApiKeyLabel.Dispose();
-                GundiApiKeyTextBox.Dispose();
-                DeletePairButton.Dispose();
-            };
-
-
-        }
-
-    }
 }
