@@ -27,6 +27,10 @@ public class GroupAlias
 {
     public required string guid { get; set; }
     public required string alias { get; set; }
+    public override string ToString()
+    {
+        return alias;
+    }
 }
 
 public class GroupKeyPair
