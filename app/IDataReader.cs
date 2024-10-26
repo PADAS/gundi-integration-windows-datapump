@@ -31,11 +31,13 @@ public class GroupAlias
     {
         return alias;
     }
-}
 
-public class GroupKeyPair
-{
-    public required string api_key { get; set; }
-    public required string group_alias { get; set; }
-    public required string group_guid { get; set; }
+    public override bool Equals(object obj)
+    {
+        if (obj == null || GetType() != obj.GetType())
+        {
+            return false;
+        }
+        return guid == ((GroupAlias)obj).guid;
+    }
 }

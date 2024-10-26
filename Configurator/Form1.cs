@@ -1,17 +1,24 @@
 using System.Text.Json;
 using DataPump;
+using System.Collections.Generic;
+using System.ComponentModel;
+
 using System.Windows.Forms;
 using Timer = System.Windows.Forms.Timer;
 using System.Configuration;
+using worker;
+using service;
+
 
 namespace Configurator
 {
+
     public partial class RadioServiceConfigForm : Form
     {
 
         private RouteConfiguration configuration;
         private List<GundiConnectionControl> gundiConnectionControls;
-        private List<GroupAlias> groupAliases = new List<GroupAlias>();
+        private BindingList<GroupAlias> groupAliases;
 
         private TextBox database_hostname;
         private Label label1;
@@ -23,8 +30,6 @@ namespace Configurator
         private ComboBox database_type;
         private Label label_database_type;
         private Button button_close;
-        private Button button_add_id_pair;
-        private Label group_id_map_label;
         private Button test_connection_button;
         private Label label_test_connection_status;
         private Label database_name_label;
@@ -33,28 +38,37 @@ namespace Configurator
         private TextBox database_schema;
         private Label save_message_label;
 
-
         public RadioServiceConfigForm()
         {
+            groupAliases = new BindingList<GroupAlias>();
             gundiConnectionControls = new List<GundiConnectionControl>();
             InitializeComponent();
+
             configuration = LoadFromJson();
-            InitializeGundiConnectionControls(configuration);
+
+
             BindControls();
+            InitializeGundiConnectionControls(configuration);
+
+
         }
 
         private void InitializeGundiConnectionControls(RouteConfiguration configuration)
         {
+
             configuration.gundiConnections.ForEach(route =>
                addGundiConnection(null, null, route)
              );
+
         }
+
         private void BindControls()
         {
             // Bind the TextBox controls to the GundiConnection properties
+            database_type.DataSource = new BindingList<SupportedReader>(RadioDataPumpService.supportedReaders);
+            database_type.DataBindings.Add("SelectedItem", configuration, "DatabaseType", false, DataSourceUpdateMode.OnPropertyChanged);
             database_hostname.DataBindings.Add("Text", configuration, "Hostname", false, DataSourceUpdateMode.OnPropertyChanged);
             database_name.DataBindings.Add("Text", configuration, "DatabaseName", false, DataSourceUpdateMode.OnPropertyChanged);
-            database_type.DataBindings.Add("Text", configuration, "DatabaseType", false, DataSourceUpdateMode.OnPropertyChanged);
             database_username.DataBindings.Add("Text", configuration, "Username", false, DataSourceUpdateMode.OnPropertyChanged);
             database_schema.DataBindings.Add("Text", configuration, "DatabaseSchema", false, DataSourceUpdateMode.OnPropertyChanged);
             database_password.DataBindings.Add("Text", configuration, "Password", false, DataSourceUpdateMode.OnPropertyChanged);
@@ -70,7 +84,7 @@ namespace Configurator
             string filePath = "config.json";
             File.WriteAllText(filePath, json);
 
-            MessageBox.Show("Configuration saved to " + filePath, "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            //MessageBox.Show("Configuration saved to " + filePath, "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private RouteConfiguration LoadFromJson()
@@ -124,7 +138,7 @@ namespace Configurator
             var index = 0;
             gundiConnectionControls.ForEach(card =>
             {
-                card.TopOffset = 5 + index * 125;
+                card.TopOffset = 5 + index * 140;
                 index = index + 1;
             });
         }
@@ -134,7 +148,7 @@ namespace Configurator
         {
             var gundiConnection = new GundiConnection();
             gundiConnection.ConnectionName = "Connection " + (configuration.gundiConnections.Count + 1);
-            gundiConnection.Destination = "https://sensors.api.gundiservice.org";   
+            gundiConnection.Destination = "https://sensors.api.gundiservice.org";
             configuration.gundiConnections.Add(gundiConnection);
             addGundiConnection(sender, e, gundiConnection);
         }
@@ -154,22 +168,70 @@ namespace Configurator
             gundiConnectionCard.GroupsListBox.ValueMember = "guid";
             gundiConnectionCard.GroupsListBox.SelectionMode = SelectionMode.MultiSimple;
 
+            // This ensures the DataSource has items equivalent to what is being read from a config file.
             if (gundiConnection.GroupAliases != null)
             {
-                gundiConnection.GroupAliases.ForEach(thing =>
+                gundiConnection.GroupAliases.ForEach(item =>
                 {
-                    groupAliases.Add(thing);
-                    gundiConnectionCard.GroupsListBox.SelectedItems.Add(thing);
+                    if (!groupAliases.Contains(item))
+                    {
+                        groupAliases.Add(item);
+
+                    }
+ 
                 });
             }
+
+            for (int i=0; i < gundiConnectionCard.GroupsListBox.Items.Count; i++)
+            {
+                if (gundiConnection.GroupAliases.Contains(gundiConnectionCard.GroupsListBox.Items[i]))
+                {
+                    gundiConnectionCard.GroupsListBox.SetSelected(i, true);
+                }
+                else
+                {
+                    gundiConnectionCard.GroupsListBox.SetSelected(i, false);
+                }
+            }  
+
 
             gundiConnectionCard.GroupsListBox.SelectedIndexChanged += (s, args) =>
             {
                 gundiConnection.GroupAliases = gundiConnectionCard.GroupsListBox.SelectedItems.Cast<GroupAlias>().ToList();
             };
 
-            //gundiConnectionCard.GroupsListBox.DataBindings.Add("SelectedItems", gundiConnection, "GroupAliases", false, DataSourceUpdateMode.OnPropertyChanged);
-            
+            var selectedReader = (SupportedReader)database_type.SelectedItem;
+
+            if (selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus
+                               || selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartOneDispatch) 
+            { 
+                gundiConnectionCard.GroupsLabel.ForeColor = Color.Black;
+                gundiConnectionCard.GroupsListBox.Enabled = true;
+            }
+            else
+            {
+                gundiConnectionCard.GroupsLabel.ForeColor = Color.Gray;
+                gundiConnectionCard.GroupsListBox.Enabled = false;
+            }
+
+            database_type.SelectedIndexChanged += (s, args) =>
+            {
+                var selectedReader = (SupportedReader)database_type.SelectedItem;
+
+                if (selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus
+                                   || selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartOneDispatch)
+                {
+                    gundiConnectionCard.GroupsLabel.ForeColor = Color.Black;
+                    gundiConnectionCard.GroupsListBox.Enabled = true;
+                }
+                else
+                {
+                    gundiConnectionCard.GroupsLabel.ForeColor = Color.Gray;
+                    gundiConnectionCard.GroupsListBox.Enabled = false;
+                }
+            };
+
+
             tabGundiConnection.Controls.Add(gundiConnectionCard.ConnectionNameLabel);
             tabGundiConnection.Controls.Add(gundiConnectionCard.ConnectionNameTextBox);
             tabGundiConnection.Controls.Add(gundiConnectionCard.GundiApiKeyLabel);
@@ -200,7 +262,12 @@ namespace Configurator
             adjustConnectionPositions(sender, e);
         }
 
-        private void test_connection_button_Click(object sender, EventArgs e)
+        private void Database_type_SelectedIndexChanged(object? sender, EventArgs e)
+        {
+            throw new NotImplementedException();
+        }
+
+        private void testConnectionButtonClick(object sender, EventArgs e)
         {
 
             label_test_connection_status.Visible = false;
@@ -214,30 +281,25 @@ namespace Configurator
 
             IDataReader reader = null;
 
-            if (this.database_type.SelectedItem.ToString() == "Smart Dispatch Plus")
+            var selectedReader = (SupportedReader)database_type.SelectedItem;
+
+
+            if (selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus)
             {
                 reader = new SmartDispatchPlusV1Reader(this.database_hostname.Text,
                     this.database_name.Text, this.database_username.Text, this.database_password.Text,
                     this.database_schema.Text);
 
-                groupAliases = reader.GetGroupAliases();
-
-                //groups.ForEach(group =>
-                //{
-                //    identifierPairs.ForEach(pair =>
-                //    {
-                //        if (pair.GroupGuid == group.alias)
-                //        {
-                //            MessageBox.Show("Group alias already exists.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                //            return;
-                //        }
-                //    });
-                //    addGundiConnection(this, EventArgs.Empty, new GroupKeyPair { group_alias = group.alias, api_key = "", group_guid = group.guid });
-                //    groupsListBox.Items.Add(group);
-                //});
+                reader.GetGroupAliases().ForEach(item =>
+                {
+                    if (!groupAliases.Contains(item))
+                    {
+                        groupAliases.Add(item);
+                    }
+                });
 
             }
-            if (this.database_type.SelectedItem.ToString() == "Smart One Dispatch")
+            if (selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartOneDispatch)
             {
                 reader = new SmartOneDispatchReader(this.database_hostname.Text,
                                        this.database_name.Text, this.database_username.Text, this.database_password.Text,
@@ -245,13 +307,13 @@ namespace Configurator
 
 
             }
-            if (this.database_type.SelectedItem.ToString() == "Kenwood KAS20")
+            if (selectedReader.Type == RadioServiceConfiguration.ReaderType.KAS20)
             {
                 reader = new KAS20DataReader(this.database_hostname.Text,
                                        this.database_name.Text, this.database_username.Text, this.database_password.Text);
             }
 
-            if (this.database_type.SelectedItem.ToString() == "TRBOnet")
+            if (selectedReader.Type == RadioServiceConfiguration.ReaderType.TrbonetPlus)
             {
                 reader = new TrbonetPlusDataReader(this.database_hostname.Text,
                                                           this.database_name.Text, this.database_username.Text, this.database_password.Text);
@@ -295,9 +357,10 @@ namespace Configurator
 
         private void database_type_SelectedIndexChanged(object sender, EventArgs e)
         {
-            string selectedItem = database_type.SelectedItem.ToString();
+            var selectedItem = (SupportedReader)database_type.SelectedItem;
 
-            if (selectedItem == "Smart Dispatch Plus" || selectedItem == "Smart One Dispatch")
+            if (selectedItem.Type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus
+                || selectedItem.Type == RadioServiceConfiguration.ReaderType.SmartOneDispatch)
             {
                 this.database_schema.Enabled = true;
                 this.database_schema_label.Enabled = true;
@@ -340,6 +403,11 @@ namespace Configurator
         {
             addGundiConnection(sender, e);
         }
+
+        private void fetchGroupsButton_Click(object sender, EventArgs e)
+        {
+            testConnectionButtonClick(sender, e);
+        }
     }
 
     public class RouteConfiguration
@@ -348,7 +416,7 @@ namespace Configurator
         public string Username { get; set; }
         public string Password { get; set; }
         public string DatabaseName { get; set; }
-        public string DatabaseType { get; set; }
+        public SupportedReader DatabaseType { get; set; }
         public string DatabaseSchema { get; set; }
 
         public List<GundiConnection> gundiConnections { get; set; }

@@ -40,8 +40,6 @@ namespace Configurator
             database_type = new ComboBox();
             label_database_type = new Label();
             button_close = new Button();
-            button_add_id_pair = new Button();
-            group_id_map_label = new Label();
             test_connection_button = new Button();
             label_test_connection_status = new Label();
             database_name_label = new Label();
@@ -51,8 +49,8 @@ namespace Configurator
             save_message_label = new Label();
             tabControl1 = new TabControl();
             tabDatabaseConnection = new TabPage();
-            panel_identifier_pairs = new Panel();
             tabGundiConnection = new TabPage();
+            fetchGroupsButton = new Button();
             button_addGundiConnection = new Button();
             statusStrip = new StatusStrip();
             statusLabel = new ToolStripStatusLabel();
@@ -66,7 +64,7 @@ namespace Configurator
             // 
             database_hostname.Location = new Point(20, 97);
             database_hostname.Name = "database_hostname";
-            database_hostname.Size = new Size(266, 23);
+            database_hostname.Size = new Size(402, 23);
             database_hostname.TabIndex = 1;
             database_hostname.TextChanged += AnyControl_ValueChanged;
             // 
@@ -102,7 +100,7 @@ namespace Configurator
             // 
             database_username.Location = new Point(20, 210);
             database_username.Name = "database_username";
-            database_username.Size = new Size(266, 23);
+            database_username.Size = new Size(402, 23);
             database_username.TabIndex = 3;
             database_username.TextChanged += AnyControl_ValueChanged;
             // 
@@ -120,7 +118,7 @@ namespace Configurator
             database_password.Location = new Point(20, 269);
             database_password.Name = "database_password";
             database_password.PasswordChar = '*';
-            database_password.Size = new Size(266, 23);
+            database_password.Size = new Size(402, 23);
             database_password.TabIndex = 4;
             database_password.TextChanged += AnyControl_ValueChanged;
             // 
@@ -130,10 +128,9 @@ namespace Configurator
             database_type.AutoCompleteSource = AutoCompleteSource.ListItems;
             database_type.DropDownStyle = ComboBoxStyle.DropDownList;
             database_type.FormattingEnabled = true;
-            database_type.Items.AddRange(new object[] { "Smart Dispatch Plus", "Smart One Dispatch", "TRBOnet", "Kenwood KAS20" });
             database_type.Location = new Point(20, 44);
             database_type.Name = "database_type";
-            database_type.Size = new Size(266, 23);
+            database_type.Size = new Size(402, 23);
             database_type.TabIndex = 0;
             database_type.SelectedIndexChanged += database_type_SelectedIndexChanged;
             // 
@@ -156,24 +153,6 @@ namespace Configurator
             button_close.UseVisualStyleBackColor = true;
             button_close.Click += button_close_click;
             // 
-            // button_add_id_pair
-            // 
-            button_add_id_pair.Location = new Point(728, 268);
-            button_add_id_pair.Name = "button_add_id_pair";
-            button_add_id_pair.Size = new Size(85, 23);
-            button_add_id_pair.TabIndex = 10;
-            button_add_id_pair.Text = "Add";
-            button_add_id_pair.UseVisualStyleBackColor = true;
-            // 
-            // group_id_map_label
-            // 
-            group_id_map_label.AutoSize = true;
-            group_id_map_label.Location = new Point(318, 20);
-            group_id_map_label.Name = "group_id_map_label";
-            group_id_map_label.Size = new Size(81, 15);
-            group_id_map_label.TabIndex = 11;
-            group_id_map_label.Text = "Group ID Map";
-            // 
             // test_connection_button
             // 
             test_connection_button.Location = new Point(20, 358);
@@ -182,7 +161,7 @@ namespace Configurator
             test_connection_button.TabIndex = 5;
             test_connection_button.Text = "&Test Connecction";
             test_connection_button.UseVisualStyleBackColor = true;
-            test_connection_button.Click += test_connection_button_Click;
+            test_connection_button.Click += testConnectionButtonClick;
             // 
             // label_test_connection_status
             // 
@@ -207,7 +186,7 @@ namespace Configurator
             // 
             database_name.Location = new Point(20, 150);
             database_name.Name = "database_name";
-            database_name.Size = new Size(267, 23);
+            database_name.Size = new Size(402, 23);
             database_name.TabIndex = 2;
             database_name.TextChanged += AnyControl_ValueChanged;
             // 
@@ -224,7 +203,7 @@ namespace Configurator
             // 
             database_schema.Location = new Point(20, 320);
             database_schema.Name = "database_schema";
-            database_schema.Size = new Size(267, 23);
+            database_schema.Size = new Size(402, 23);
             database_schema.TabIndex = 16;
             database_schema.TextChanged += AnyControl_ValueChanged;
             // 
@@ -265,10 +244,7 @@ namespace Configurator
             tabDatabaseConnection.Controls.Add(label3);
             tabDatabaseConnection.Controls.Add(test_connection_button);
             tabDatabaseConnection.Controls.Add(database_password);
-            tabDatabaseConnection.Controls.Add(group_id_map_label);
             tabDatabaseConnection.Controls.Add(database_type);
-            tabDatabaseConnection.Controls.Add(button_add_id_pair);
-            tabDatabaseConnection.Controls.Add(panel_identifier_pairs);
             tabDatabaseConnection.Location = new Point(4, 24);
             tabDatabaseConnection.Name = "tabDatabaseConnection";
             tabDatabaseConnection.Padding = new Padding(3);
@@ -278,18 +254,10 @@ namespace Configurator
             tabDatabaseConnection.UseVisualStyleBackColor = true;
             tabDatabaseConnection.Click += tabDatabaseConnection_Click;
             // 
-            // panel_identifier_pairs
-            // 
-            panel_identifier_pairs.AutoScroll = true;
-            panel_identifier_pairs.BorderStyle = BorderStyle.FixedSingle;
-            panel_identifier_pairs.Location = new Point(318, 43);
-            panel_identifier_pairs.Name = "panel_identifier_pairs";
-            panel_identifier_pairs.Size = new Size(495, 216);
-            panel_identifier_pairs.TabIndex = 9;
-            // 
             // tabGundiConnection
             // 
             tabGundiConnection.AutoScroll = true;
+            tabGundiConnection.Controls.Add(fetchGroupsButton);
             tabGundiConnection.Controls.Add(button_addGundiConnection);
             tabGundiConnection.Location = new Point(4, 24);
             tabGundiConnection.Name = "tabGundiConnection";
@@ -299,14 +267,24 @@ namespace Configurator
             tabGundiConnection.Text = "Gundi Connections";
             tabGundiConnection.UseVisualStyleBackColor = true;
             // 
+            // fetchGroupsButton
+            // 
+            fetchGroupsButton.Location = new Point(681, 39);
+            fetchGroupsButton.Name = "fetchGroupsButton";
+            fetchGroupsButton.Size = new Size(143, 23);
+            fetchGroupsButton.TabIndex = 12;
+            fetchGroupsButton.Text = "Refresh Groups";
+            fetchGroupsButton.UseVisualStyleBackColor = true;
+            fetchGroupsButton.Click += fetchGroupsButton_Click;
+            // 
             // button_addGundiConnection
             // 
             button_addGundiConnection.FlatStyle = FlatStyle.System;
-            button_addGundiConnection.Location = new Point(738, 17);
+            button_addGundiConnection.Location = new Point(681, 6);
             button_addGundiConnection.Name = "button_addGundiConnection";
-            button_addGundiConnection.Size = new Size(75, 23);
+            button_addGundiConnection.Size = new Size(143, 23);
             button_addGundiConnection.TabIndex = 11;
-            button_addGundiConnection.Text = "Add";
+            button_addGundiConnection.Text = "Add Connection";
             button_addGundiConnection.UseVisualStyleBackColor = true;
             button_addGundiConnection.Click += gundiConnectionsAddButtonClick;
             // 
@@ -352,7 +330,7 @@ namespace Configurator
         private StatusStrip statusStrip;
         private ToolStripStatusLabel statusLabel;
         private Button button_addGundiConnection;
-        private Panel panel_identifier_pairs;
+        private Button fetchGroupsButton;
     }
 
 }

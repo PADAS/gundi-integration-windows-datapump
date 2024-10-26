@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\app\DataPump.csproj" />
+    <ProjectReference Include="..\service\RadioService.csproj" />
   </ItemGroup>
 
 </Project>

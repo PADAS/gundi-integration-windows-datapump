@@ -1,3 +1,6 @@
+using service;
+using worker;
+
 namespace service;
 
 using NLog;
@@ -6,14 +9,33 @@ using DataPump;
 using System.Threading.Tasks;
 using worker;
 
+public class SupportedReader
+{
+    public string Name { get; set; }
+    public RadioServiceConfiguration.ReaderType Type { get; set; }
+
+    public override string ToString()
+    {
+        return Name;
+    }
+}
+
+
 
 public class RadioDataPumpService : BackgroundService
 {
     private readonly ILogger<RadioDataPumpService> _logger;
     private static readonly Logger logger = LogManager.GetCurrentClassLogger();
     private readonly IConfiguration _configuration;
-    
-    public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration c)
+    public static List<SupportedReader> supportedReaders = new List<SupportedReader>
+            {
+                new SupportedReader { Name = "Smart Dispatch Plus", Type = RadioServiceConfiguration.ReaderType.SmartDispatchPlus},
+                new SupportedReader { Name = "Smart One Dispatch", Type = RadioServiceConfiguration.ReaderType.SmartOneDispatch },
+                new SupportedReader { Name = "Kenwood KAS20", Type = RadioServiceConfiguration.ReaderType.KAS20 },
+                new SupportedReader { Name = "TRBOnet", Type = RadioServiceConfiguration.ReaderType.TrbonetPlus }
+            };
+
+public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration c)
     {
         _logger = logger;
         _configuration = c;
