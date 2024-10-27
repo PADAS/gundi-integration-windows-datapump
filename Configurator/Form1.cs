@@ -2,7 +2,7 @@ using System.Text.Json;
 using DataPump;
 using System.Collections.Generic;
 using System.ComponentModel;
-
+using System.Drawing;
 using System.Windows.Forms;
 using Timer = System.Windows.Forms.Timer;
 using System.Configuration;
@@ -44,13 +44,17 @@ namespace Configurator
             gundiConnectionControls = new List<GundiConnectionControl>();
             InitializeComponent();
 
-            configuration = LoadFromJson();
+            configuration = loadConfiguration();
 
 
             BindControls();
             InitializeGundiConnectionControls(configuration);
 
-
+            if (configuration.DatabaseType == null)
+            {
+                configuration.DatabaseType = database_type.SelectedItem as SupportedReader;
+            }
+                
         }
 
         private void InitializeGundiConnectionControls(RouteConfiguration configuration)
@@ -76,7 +80,13 @@ namespace Configurator
 
         private void saveConfiguration()
         {
-
+            // Todo: find a better way to deal with input variance.
+            configuration.gundiConnections.ForEach(gc =>
+            {
+               gc.ApiKey = gc.ApiKey.Trim();
+               gc.Destination = gc.Destination.Trim();
+               gc.ConnectionName = gc.ConnectionName.Trim();
+            });
             // Serialize to JSON
             string json = JsonSerializer.Serialize(configuration, new JsonSerializerOptions { WriteIndented = true });
 
@@ -87,7 +97,7 @@ namespace Configurator
             //MessageBox.Show("Configuration saved to " + filePath, "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
-        private RouteConfiguration LoadFromJson()
+        private RouteConfiguration loadConfiguration()
         {
             string filePath = "config.json";
 
@@ -104,11 +114,7 @@ namespace Configurator
                     configuration = JsonSerializer.Deserialize<RouteConfiguration>(json);
 
                     Console.WriteLine("Loaded: " + configuration);
-                    //// Set the selected item for the ComboBox
-                    //if (!string.IsNullOrEmpty(configuration?.DatabaseType) && database_type.Items.Contains(configuration.DatabaseType))
-                    //{
-                    //    database_type.SelectedItem = configuration.DatabaseType;
-                    //}
+
 
                 }
                 catch (Exception ex)
@@ -166,7 +172,7 @@ namespace Configurator
             gundiConnectionCard.GroupsListBox.DataSource = groupAliases;
             gundiConnectionCard.GroupsListBox.DisplayMember = "alias";
             gundiConnectionCard.GroupsListBox.ValueMember = "guid";
-            gundiConnectionCard.GroupsListBox.SelectionMode = SelectionMode.MultiSimple;
+            gundiConnectionCard.GroupsListBox.CheckOnClick = true;
 
             // This ensures the DataSource has items equivalent to what is being read from a config file.
             if (gundiConnection.GroupAliases != null)
@@ -176,28 +182,44 @@ namespace Configurator
                     if (!groupAliases.Contains(item))
                     {
                         groupAliases.Add(item);
-
                     }
- 
+
+                    for (int i = 0; i < gundiConnectionCard.GroupsListBox.Items.Count; i++)
+                    {
+                        if (gundiConnection.GroupAliases.Contains(gundiConnectionCard.GroupsListBox.Items[i]))
+                        {
+                            gundiConnectionCard.GroupsListBox.SetItemChecked(i, true);
+                        }
+                        else
+                        {
+                            gundiConnectionCard.GroupsListBox.SetItemChecked(i, false);
+                        }
+                    }
+
                 });
             }
 
-            for (int i=0; i < gundiConnectionCard.GroupsListBox.Items.Count; i++)
-            {
-                if (gundiConnection.GroupAliases.Contains(gundiConnectionCard.GroupsListBox.Items[i]))
-                {
-                    gundiConnectionCard.GroupsListBox.SetSelected(i, true);
-                }
-                else
-                {
-                    gundiConnectionCard.GroupsListBox.SetSelected(i, false);
-                }
-            }  
-
-
+            // Suppress highlighting of the selected item
             gundiConnectionCard.GroupsListBox.SelectedIndexChanged += (s, args) =>
             {
-                gundiConnection.GroupAliases = gundiConnectionCard.GroupsListBox.SelectedItems.Cast<GroupAlias>().ToList();
+                gundiConnection.GroupAliases = gundiConnectionCard.GroupsListBox.CheckedItems.Cast<GroupAlias>().ToList();
+                gundiConnectionCard.GroupsListBox.ClearSelected();
+            };
+            
+            // Suppress highlighting of the selected item
+            gundiConnectionCard.GroupsListBox.MouseDown += (s, args) =>
+            {
+                // Find the item under the mouse pointer
+                int index = gundiConnectionCard.GroupsListBox.IndexFromPoint(args.Location);
+                
+                if (index != -1)
+                {
+                    // Toggle the checked state without changing the selection
+                    gundiConnectionCard.GroupsListBox.SetItemChecked(index, !gundiConnectionCard.GroupsListBox.GetItemChecked(index));
+                    
+                    // Prevent item selection
+                    gundiConnectionCard.GroupsListBox.ClearSelected();
+                }
             };
 
             var selectedReader = (SupportedReader)database_type.SelectedItem;
@@ -439,7 +461,7 @@ namespace Configurator
         public ComboBox GundiDestinationComboBox { get; set; }
 
         public Label GroupsLabel { get; set; }
-        public ListBox GroupsListBox { get; set; }
+        public CheckedListBox GroupsListBox { get; set; }
 
         public CheckBox SendEverythingCheckBox { get; set; }
 
@@ -549,7 +571,7 @@ namespace Configurator
                 TabIndex = 5,
             };
 
-            GroupsListBox = new ListBox()
+            GroupsListBox = new CheckedListBox()
             {
                 Top = 0,
                 Left = 430,
