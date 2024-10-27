@@ -14,4 +14,9 @@ public class GundiConnection
 
     public List<GroupAlias> GroupAliases { get; set; }
 
+    public GundiConnection()
+    {
+        GroupAliases = new List<GroupAlias>();
+    }
+
 }

@@ -40,10 +40,10 @@ namespace worker
         // Define an enum for coffee types
         public enum ReaderType
         {
-            KAS20,
-            SmartDispatchPlus,
-            SmartOneDispatch,
-            TrbonetPlus
+            KAS20 = 0,
+            SmartDispatchPlus = 1,
+            SmartOneDispatch = 3,
+            TrbonetPlus = 4
         }
 
     }

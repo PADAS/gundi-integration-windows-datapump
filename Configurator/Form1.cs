@@ -44,8 +44,8 @@ namespace Configurator
             gundiConnectionControls = new List<GundiConnectionControl>();
             InitializeComponent();
 
+            // Load a saved configuration.
             configuration = loadConfiguration();
-
 
             BindControls();
             InitializeGundiConnectionControls(configuration);
@@ -61,8 +61,8 @@ namespace Configurator
         {
 
             configuration.gundiConnections.ForEach(route =>
-               addGundiConnection(null, null, route)
-             );
+                addGundiConnection(null, null, route)
+            );
 
         }
 
@@ -83,9 +83,9 @@ namespace Configurator
             // Todo: find a better way to deal with input variance.
             configuration.gundiConnections.ForEach(gc =>
             {
-               gc.ApiKey = gc.ApiKey.Trim();
-               gc.Destination = gc.Destination.Trim();
-               gc.ConnectionName = gc.ConnectionName.Trim();
+               gc.ApiKey = gc.ApiKey?.Trim() ?? "";
+               gc.Destination = gc.Destination?.Trim() ?? "";
+               gc.ConnectionName = gc.ConnectionName?.Trim() ?? "";
             });
             // Serialize to JSON
             string json = JsonSerializer.Serialize(configuration, new JsonSerializerOptions { WriteIndented = true });
@@ -169,35 +169,61 @@ namespace Configurator
             gundiConnectionCard.GundiDestinationComboBox.DataBindings.Add("Text", gundiConnection, "Destination", false, DataSourceUpdateMode.OnPropertyChanged);
             gundiConnectionCard.SendEverythingCheckBox.DataBindings.Add("Checked", gundiConnection, "SendEverything", false, DataSourceUpdateMode.OnPropertyChanged);
 
-            gundiConnectionCard.GroupsListBox.DataSource = groupAliases;
+            //gundiConnectionCard.GroupsListBox.DataSource = groupAliases;
             gundiConnectionCard.GroupsListBox.DisplayMember = "alias";
-            gundiConnectionCard.GroupsListBox.ValueMember = "guid";
+            //gundiConnectionCard.GroupsListBox.ValueMember = "guid";
             gundiConnectionCard.GroupsListBox.CheckOnClick = true;
+
+
+            // Add configured items to the list and listbox.
+            foreach (var item in gundiConnection.GroupAliases)
+            {
+                if (!groupAliases.Contains(item))
+                {
+                    groupAliases.Add(item);
+                }
+
+            }
+
+            // Ensure the listbox control contains all group items.
+            foreach (var item in groupAliases)
+            {
+                if (!gundiConnectionCard.GroupsListBox.Items.Contains(item))
+                {
+                    gundiConnectionCard.GroupsListBox.Items.Add(item, true);
+                }
+
+            }
+
+            groupAliases.ListChanged += (s, args) =>
+            {
+                foreach (var item in groupAliases)
+                {
+                    if (!gundiConnectionCard.GroupsListBox.Items.Contains(item))
+                    {
+                        gundiConnectionCard.GroupsListBox.Items.Add(item);
+                    }
+
+                }
+            };
 
             // This ensures the DataSource has items equivalent to what is being read from a config file.
             if (gundiConnection.GroupAliases != null)
             {
-                gundiConnection.GroupAliases.ForEach(item =>
+
+                for (int i = 0; i < gundiConnectionCard.GroupsListBox.Items.Count; i++)
                 {
-                    if (!groupAliases.Contains(item))
+                    if (gundiConnection.GroupAliases.Contains(gundiConnectionCard.GroupsListBox.Items[i]))
                     {
-                        groupAliases.Add(item);
+                        gundiConnectionCard.GroupsListBox.SetItemChecked(i, true);
                     }
-
-                    for (int i = 0; i < gundiConnectionCard.GroupsListBox.Items.Count; i++)
+                    else
                     {
-                        if (gundiConnection.GroupAliases.Contains(gundiConnectionCard.GroupsListBox.Items[i]))
-                        {
-                            gundiConnectionCard.GroupsListBox.SetItemChecked(i, true);
-                        }
-                        else
-                        {
-                            gundiConnectionCard.GroupsListBox.SetItemChecked(i, false);
-                        }
+                        gundiConnectionCard.GroupsListBox.SetItemChecked(i, false);
                     }
-
-                });
+                }
             }
+
 
             // Suppress highlighting of the selected item
             gundiConnectionCard.GroupsListBox.SelectedIndexChanged += (s, args) =>
@@ -496,6 +522,7 @@ namespace Configurator
 
         public GundiConnectionControl(int index)
         {
+
             // Initialize the source identifier label
             ConnectionNameLabel = new Label()
             {
@@ -577,7 +604,7 @@ namespace Configurator
                 Left = 430,
                 Width = 150,
                 Height = 100,
-                TabIndex = 6
+                TabIndex = 6,
             };
             DeleteButton = new Button()
             {
@@ -599,6 +626,8 @@ namespace Configurator
                 SendEverythingCheckBox.Dispose();
                 DeleteButton.Dispose();
             };
+
+
         }
     }
 }
