@@ -1,4 +1,5 @@
 ﻿using NLog;
+using service;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -153,6 +154,8 @@ namespace worker
     public class AppSettings
     {
         public RadioServiceConfiguration? RadioServiceConfiguration { get; set; }   
+
+        public RouteConfiguration? RouteConfiguration { get; set; } = new RouteConfiguration();
 
         public IDictionary<string, object>? Logging { get; set; }
     }

@@ -38,6 +38,8 @@ namespace Configurator
         private TextBox database_schema;
         private Label save_message_label;
 
+        private AppSettingsManager appSettingsManager;
+
         public RadioServiceConfigForm()
         {
             groupAliases = new BindingList<GroupAlias>();
@@ -45,7 +47,11 @@ namespace Configurator
             InitializeComponent();
 
             // Load a saved configuration.
-            configuration = loadConfiguration();
+            appSettingsManager = new AppSettingsManager("appsettings.json");
+            //configuration = loadConfiguration();
+            var settings = appSettingsManager.LoadValue();
+
+            configuration = settings.RouteConfiguration;
 
             BindControls();
             InitializeGundiConnectionControls(configuration);
@@ -80,51 +86,58 @@ namespace Configurator
 
         private void saveConfiguration()
         {
-            // Todo: find a better way to deal with input variance.
-            configuration.gundiConnections.ForEach(gc =>
-            {
-               gc.ApiKey = gc.ApiKey?.Trim() ?? "";
-               gc.Destination = gc.Destination?.Trim() ?? "";
-               gc.ConnectionName = gc.ConnectionName?.Trim() ?? "";
-            });
-            // Serialize to JSON
-            string json = JsonSerializer.Serialize(configuration, new JsonSerializerOptions { WriteIndented = true });
-
-            // Write to a file
-            string filePath = "config.json";
-            File.WriteAllText(filePath, json);
+            appSettingsManager.SaveValue();
 
             //MessageBox.Show("Configuration saved to " + filePath, "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
+        //private void saveConfiguration()
+        //{
+        //    // Todo: find a better way to deal with input variance.
+        //    configuration.gundiConnections.ForEach(gc =>
+        //    {
+        //        gc.ApiKey = gc.ApiKey?.Trim() ?? "";
+        //        gc.Destination = gc.Destination?.Trim() ?? "";
+        //        gc.ConnectionName = gc.ConnectionName?.Trim() ?? "";
+        //    });
+        //    // Serialize to JSON
+        //    string json = JsonSerializer.Serialize(configuration, new JsonSerializerOptions { WriteIndented = true });
 
-        private RouteConfiguration loadConfiguration()
-        {
-            string filePath = "config.json";
+        //    // Write to a file
+        //    string filePath = "config.json";
+        //    File.WriteAllText(filePath, json);
 
-            configuration = new RouteConfiguration();
-            // Check if the file exists
-            if (File.Exists(filePath))
-            {
-                try
-                {
-                    // Read from the JSON file
-                    string json = File.ReadAllText(filePath);
-
-                    // Deserialize the JSON
-                    configuration = JsonSerializer.Deserialize<RouteConfiguration>(json);
-
-                    Console.WriteLine("Loaded: " + configuration);
+        //    //MessageBox.Show("Configuration saved to " + filePath, "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        //}
 
 
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Error loading configuration: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
+        //private RouteConfiguration loadConfiguration()
+        //{
+        //    string filePath = "config.json";
 
-            return configuration;
-        }
+        //    configuration = new RouteConfiguration();
+        //    // Check if the file exists
+        //    if (File.Exists(filePath))
+        //    {
+        //        try
+        //        {
+        //            // Read from the JSON file
+        //            string json = File.ReadAllText(filePath);
+
+        //            // Deserialize the JSON
+        //            configuration = JsonSerializer.Deserialize<RouteConfiguration>(json);
+
+        //            Console.WriteLine("Loaded: " + configuration);
+
+
+        //        }
+        //        catch (Exception ex)
+        //        {
+        //            MessageBox.Show("Error loading configuration: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        //        }
+        //    }
+
+        //    return configuration;
+        //}
 
 
         private void button_save_click(object sender, EventArgs e)
@@ -458,23 +471,6 @@ namespace Configurator
         }
     }
 
-    public class RouteConfiguration
-    {
-        public string Hostname { get; set; }
-        public string Username { get; set; }
-        public string Password { get; set; }
-        public string DatabaseName { get; set; }
-        public SupportedReader DatabaseType { get; set; }
-        public string DatabaseSchema { get; set; }
-
-        public List<GundiConnection> gundiConnections { get; set; }
-
-        public RouteConfiguration()
-        {
-            gundiConnections = new List<GundiConnection>();
-        }
-    }
-
     public class GundiConnectionControl
     {
         public Label ConnectionNameLabel { get; set; }
@@ -537,7 +533,7 @@ namespace Configurator
             {
                 Top = 0,
                 Left = 220,
-                Width = 200,
+                Width = 230,
                 TabIndex = 1
             };
 
@@ -555,12 +551,14 @@ namespace Configurator
             {
                 Top = 0,
                 Left = 220,
-                Width = 200,
+                Width = 230,
                 TabIndex = 2
             };
 
-            GundiDestinationComboBox.Items.AddRange(new object[] { "https://sensors.api.gundiservice.org", "https://sensors.api.stage.gundiservice.org" });
-            GundiDestinationComboBox.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+            //GundiDestinationComboBox.Items.AddRange(new object[] { "https://sensors.api.gundiservice.org", "https://sensors.api.stage.gundiservice.org" });
+            GundiDestinationComboBox.Items.AddRange(new object[] { "https://sensors.api.gundiservice.org"});
+
+            GundiDestinationComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
 
             // Initialize the destination identifier label
             GundiApiKeyLabel = new Label()
@@ -576,7 +574,7 @@ namespace Configurator
             {
                 Top = 0,
                 Left = 220,
-                Width = 200,
+                Width = 230,
                 TabIndex = 3
             };
 
@@ -585,7 +583,7 @@ namespace Configurator
                 Text = "Send Everything",
                 Top = 0,
                 Left = 10,
-                Width = 250,
+                Width = 220,
                 TabIndex = 4
             };
 
@@ -593,7 +591,7 @@ namespace Configurator
             {
                 Text = "Groups",
                 Top = 0,
-                Left = 430,
+                Left = 460,
                 Width = 150,
                 TabIndex = 5,
             };
@@ -601,7 +599,7 @@ namespace Configurator
             GroupsListBox = new CheckedListBox()
             {
                 Top = 0,
-                Left = 430,
+                Left = 460,
                 Width = 150,
                 Height = 100,
                 TabIndex = 6,
@@ -610,8 +608,8 @@ namespace Configurator
             {
                 Text = "Remove",
                 Top = 0,
-                Left = 580,
-                Width = 90,
+                Left = 610,
+                Width = 60,
                 TabIndex = 5
             };
 

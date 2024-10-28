@@ -21,12 +21,31 @@ public class SupportedReader
 }
 
 
+public class RouteConfiguration
+{
+    public string? Hostname { get; set; } = "localhost";
+    public string? Username { get; set; } = "";
+    public string? Password { get; set; } = "";
+    public string? DatabaseName { get; set; } = "";
+    public SupportedReader DatabaseType { get; set; }
+    public string? DatabaseSchema { get; set; } = "";
+    public string? intervalMs { get; set; } = "5000";
+
+    public List<GundiConnection> gundiConnections { get; set; }
+
+    public RouteConfiguration()
+    {
+        gundiConnections = new List<GundiConnection>();
+    }
+
+}
 
 public class RadioDataPumpService : BackgroundService
 {
     private readonly ILogger<RadioDataPumpService> _logger;
     private static readonly Logger logger = LogManager.GetCurrentClassLogger();
     private readonly IConfiguration _configuration;
+
     public static List<SupportedReader> supportedReaders = new List<SupportedReader>
             {
                 new SupportedReader { Name = "Smart Dispatch Plus", Type = RadioServiceConfiguration.ReaderType.SmartDispatchPlus},
@@ -46,6 +65,9 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
 
         var config = new RadioServiceConfiguration();
         _configuration.GetSection("RadioServiceConfiguration").Bind(config);
+
+        var routeConfiguration = new RouteConfiguration();
+        _configuration.GetSection("RouteConfiguration").Bind(routeConfiguration);
 
         try
         {
