@@ -11,6 +11,7 @@ using System.Data.SqlTypes;
 using Npgsql;
 using System;
 using System.ComponentModel;
+using Microsoft.IdentityModel.Tokens;
 
 public class KAS20DataReader : IDataReader
 {
@@ -402,7 +403,7 @@ public class SmartDispatchPlusV1Reader : IDataReader
             " g.gpstype, g.gpscontext, g.streetname, g.rssi" + 
             ", dg.alias as group_alias" +
             ", dg.guid as group_guid" +
-            " FROM dbo.gpsinfo g JOIN dbo.device d ON d.deviceid = g.deviceid" +
+            " FROM dbo.gpsinfo g JOIN dbo.device d ON d.guid = g.deviceguid" +
             " join dbo.devicegroup dg on dg.guid = d.groupguid" +
             " WHERE g.recvgpstime > @lower_date" +
             " and id > @latest_gps_index" +
@@ -443,7 +444,9 @@ public class SmartDispatchPlusV1Reader : IDataReader
                             activeflag = reader.GetInt32(reader.GetOrdinal("activeflag")),
 
                             recvgpstime = reader.GetDateTime(reader.GetOrdinal("recvgpstime")),
-                            happentime = reader.GetDateTime(reader.GetOrdinal("happentime"))
+                            happentime = reader.GetDateTime(reader.GetOrdinal("happentime")),
+                            devicegroup_guid = reader.GetString(reader.GetOrdinal("group_guid")),
+                            devicegroup_alias = reader.GetString(reader.GetOrdinal("group_alias"))
                         };
 
                         // Timestamps are naive in the database.
@@ -636,11 +639,36 @@ public class SmartOneDispatchReader : IDataReader
     }
 }
 
+
+public class GroupedDataWriter : IDataWriter
+{
+    public readonly List<IDataWriter> writers;
+
+    public void AddWriter(IDataWriter writer)
+    {
+        writers.Add(writer);
+    }
+
+    public async Task<int> PostObservation(ISourceRecord record)
+    {
+        writers.ForEach(async writer =>
+                   await writer.PostObservation(record)
+                          );
+        return 0;
+    } 
+
+    public GroupedDataWriter()
+    {
+        writers = new List<IDataWriter>();
+    }
+
+}
 public class GundiV2DataWriter : IDataWriter
 {
     private readonly HttpClient _httpClient;
     private readonly string _destination;
     private readonly string _apikey;
+    private HashSet<string> matchingGroups;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
     public GundiV2DataWriter(string destination = "https://sensors.api.gundiservice.org", string apikey = "SomethingFancy")
@@ -649,12 +677,24 @@ public class GundiV2DataWriter : IDataWriter
         this._destination = destination;
         this._apikey = apikey;
         this._httpClient.DefaultRequestHeaders.Add("apikey", this._apikey);
-        this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/1.5");
+        this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.0");
+
+        this.matchingGroups = new HashSet<string>();
     }
 
+    public void AddMatchingGroup(string group)
+    {
+        matchingGroups.Add(group);
+    }
 
     public async Task<int> PostObservation(ISourceRecord record)
     {
+
+        if (!matchingGroups.IsNullOrEmpty() && !matchingGroups.Contains(record.group_identifier))
+        {
+            return 0;
+        }
+
         try
         {
             var observation = record.ToGundiV2Observation();

@@ -6,7 +6,8 @@ namespace DataPumpModels
         public GundiV2Observation ToGundiV2Observation();
         public EarthRangerObservation ToEarthRangerObservation();
 
-        public DateTime cursor_at { get; }   
+        public DateTime cursor_at { get; }  
+        public string group_identifier { get; }
     }
 
     public class SmartDispatchPlusV1Record : ISourceRecord
@@ -29,6 +30,11 @@ namespace DataPumpModels
         public double direction { get; set; }
         public int activeflag { get; set; }
         public string description { get; set; }
+        public string devicegroup_guid { get; set; }    
+        public string devicegroup_alias { get; set; }
+
+        // This is what will be used to match on a routing rule.
+        public string group_identifier => devicegroup_guid;
        
         public DateTime cursor_at => recvgpstime;
 
@@ -93,7 +99,8 @@ namespace DataPumpModels
                     { "direction", direction },
                     { "activeflag", activeflag },
                     { "description", description },
-                    { "subject_name", device_alias }
+                    { "subject_name", device_alias },
+                    { "devicegroup_guid", devicegroup_guid }
                 }
             };
         }
@@ -130,6 +137,7 @@ namespace DataPumpModels
         public int power_mode { get; set; }
         public int electricity { get; set; }
 
+        public string group_identifier => system_id;
         public DateTime cursor_at => receive_datetime;
 
         public EarthRangerObservation ToEarthRangerObservation()
@@ -224,6 +232,8 @@ namespace DataPumpModels
     public decimal longitude { get; set; }
     public int system_id { get; set; }
 
+    public string group_identifier => system_id.ToString();
+
         public DateTime cursor_at => recorded_at;
 
         public EarthRangerObservation ToEarthRangerObservation()
@@ -300,6 +310,8 @@ namespace DataPumpModels
         public int direction { get; set; }
         public double rssi { get; set; }
         public double radius { get; set; }
+
+        public string group_identifier => "1";
 
         public DateTime cursor_at => recorded_at;
 

@@ -88,28 +88,30 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
                     return;
                 }
 
-                if (config.connectionString == null)
-                {
-                    logger.Info("connectString is null. Stubbornly refusing to run.");
-                    return;
-                }
-
 
                 IDataReader reader;
-                if (config.reader_type == RadioServiceConfiguration.ReaderType.KAS20.ToString()) {
-                    reader = new KAS20DataReader(config.database_server, config.database_name, config.database_user, config.database_password);
+                IDataWriter data_writer;
+                if (routeConfiguration.DatabaseType.Type == RadioServiceConfiguration.ReaderType.KAS20) {
+                    reader = new KAS20DataReader(routeConfiguration.Hostname, routeConfiguration.DatabaseName, 
+                        routeConfiguration.Username, routeConfiguration.Password);
                 }
-                else if (config.reader_type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus.ToString())
+                else if (routeConfiguration.DatabaseType.Type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus)
                 {
-                    reader = new SmartDispatchPlusV1Reader(config.database_server, config.database_name, config.database_user, config.database_password, config.database_schema);
+                    reader = new SmartDispatchPlusV1Reader(
+                        routeConfiguration.Hostname, routeConfiguration.DatabaseName,
+                        routeConfiguration.Username, routeConfiguration.Password, routeConfiguration.DatabaseSchema);
                 }
-                else if (config.reader_type == RadioServiceConfiguration.ReaderType.SmartOneDispatch.ToString())
+                else if (routeConfiguration.DatabaseType.Type == RadioServiceConfiguration.ReaderType.SmartOneDispatch)
                 {
-                    reader = new SmartOneDispatchReader(config.database_server, config.database_name, config.database_user, config.database_password, config.database_schema);
+                    reader = new SmartOneDispatchReader(
+                        routeConfiguration.Hostname, routeConfiguration.DatabaseName,
+                        routeConfiguration.Username, routeConfiguration.Password, routeConfiguration.DatabaseSchema);
                 }
-                else if (config.reader_type == RadioServiceConfiguration.ReaderType.TrbonetPlus.ToString())
+                else if (routeConfiguration.DatabaseType.Type == RadioServiceConfiguration.ReaderType.TrbonetPlus)
                 {
-                    reader = new TrbonetPlusDataReader(config.database_server, config.database_name, config.database_user, config.database_password);
+                    reader = new TrbonetPlusDataReader(
+                        routeConfiguration.Hostname, routeConfiguration.DatabaseName,
+                        routeConfiguration.Username, routeConfiguration.Password);
                 }
                 else
                 {
@@ -119,26 +121,23 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
 
                 logger.Info("Starting up");
 
-                logger.Info("destination: " + config.destination);
-                var dataPump = new RadioDataPump(config.intervalMs == null ? 5000 : int.Parse(config.intervalMs));
 
-                if (config.gundi_apikey != "")
-                {
-                    logger.Info("Gundi API key is set. Adding Gundi data writer.");
+                var grouped_writer = new GroupedDataWriter();
+                routeConfiguration.gundiConnections.ForEach(gundiConnection =>
+                    {
+                        var w = new GundiV2DataWriter(gundiConnection.Destination, gundiConnection.ApiKey);
+                        gundiConnection.GroupAliases.ForEach(groupAlias =>
+                        {
+                            w.AddMatchingGroup(groupAlias.guid);
+                        });
+                        grouped_writer.AddWriter(w);
+                    }
+                );
+                data_writer = grouped_writer;
+                var dataPump = new RadioDataPump(routeConfiguration.intervalMs == null ? 5000 : int.Parse(routeConfiguration.intervalMs));
 
-                    IDataWriter data_writer = new GundiV2DataWriter(config.destination, config.gundi_apikey);
-                    var val = await dataPump.Run(
-                        reader,
-                        data_writer,
-                        stoppingToken);
-                }
-                else 
-                {
-                    logger.Info("Using EarthRanger. Adding Gundi data pump.");
-                    var val = await dataPump.Run(
-                        reader,
-                        new EarthRangerDataWriter(config.destination, config.earthranger_auth_token, config.earthranger_provider_key), stoppingToken);
-                }
+
+                var val = await dataPump.Run(reader, data_writer, stoppingToken);
 
                 logger.Info("Data pump service finished.");
                 logger.Info("Date: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:sszzz"));
