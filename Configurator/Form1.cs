@@ -86,59 +86,17 @@ namespace Configurator
 
         private void saveConfiguration()
         {
+
+            configuration.gundiConnections.ForEach (gc =>
+            {
+                gc.ApiKey = gc.ApiKey?.Trim() ?? "";
+                gc.Destination = gc.Destination?.Trim() ?? "";
+                gc.ConnectionName = gc.ConnectionName?.Trim() ?? "";
+            }) ;
             appSettingsManager.SaveValue();
 
-            //MessageBox.Show("Configuration saved to " + filePath, "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
         }
-        //private void saveConfiguration()
-        //{
-        //    // Todo: find a better way to deal with input variance.
-        //    configuration.gundiConnections.ForEach(gc =>
-        //    {
-        //        gc.ApiKey = gc.ApiKey?.Trim() ?? "";
-        //        gc.Destination = gc.Destination?.Trim() ?? "";
-        //        gc.ConnectionName = gc.ConnectionName?.Trim() ?? "";
-        //    });
-        //    // Serialize to JSON
-        //    string json = JsonSerializer.Serialize(configuration, new JsonSerializerOptions { WriteIndented = true });
-
-        //    // Write to a file
-        //    string filePath = "config.json";
-        //    File.WriteAllText(filePath, json);
-
-        //    //MessageBox.Show("Configuration saved to " + filePath, "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        //}
-
-
-        //private RouteConfiguration loadConfiguration()
-        //{
-        //    string filePath = "config.json";
-
-        //    configuration = new RouteConfiguration();
-        //    // Check if the file exists
-        //    if (File.Exists(filePath))
-        //    {
-        //        try
-        //        {
-        //            // Read from the JSON file
-        //            string json = File.ReadAllText(filePath);
-
-        //            // Deserialize the JSON
-        //            configuration = JsonSerializer.Deserialize<RouteConfiguration>(json);
-
-        //            Console.WriteLine("Loaded: " + configuration);
-
-
-        //        }
-        //        catch (Exception ex)
-        //        {
-        //            MessageBox.Show("Error loading configuration: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        //        }
-        //    }
-
-        //    return configuration;
-        //}
-
 
         private void button_save_click(object sender, EventArgs e)
         {
@@ -290,6 +248,12 @@ namespace Configurator
                     gundiConnectionCard.GroupsLabel.ForeColor = Color.Gray;
                     gundiConnectionCard.GroupsListBox.Enabled = false;
                 }
+
+                configuration.gundiConnections.ForEach(route =>
+                {
+                    route.GroupAliases.Clear();
+                });
+                gundiConnectionCard.GroupsListBox.Items.Clear();
             };
 
 
