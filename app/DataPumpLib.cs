@@ -366,27 +366,36 @@ public class SmartDispatchPlusV1Reader : IDataReader
         }
     }
 
-    public List<GroupAlias> GetGroupAliases() {       
-        using NpgsqlConnection connection = new NpgsqlConnection(this._connectionString);
-        connection.Open();
+    public List<GroupAlias> GetGroupAliases() {
 
-        var groups = new List<GroupAlias>();
-        using (NpgsqlCommand command = new NpgsqlCommand("SELECT guid, alias from dbo.devicegroup where enableflag = true", connection))
+        try
         {
-            using (NpgsqlDataReader reader = command.ExecuteReader())
+            using NpgsqlConnection connection = new NpgsqlConnection(this._connectionString);
+            connection.Open();
+
+            var groups = new List<GroupAlias>();
+            using (NpgsqlCommand command = new NpgsqlCommand("SELECT guid, alias from dbo.devicegroup where enableflag = true", connection))
             {
-                while (reader.Read())
+                using (NpgsqlDataReader reader = command.ExecuteReader())
                 {
-                    string guid = reader.GetString(reader.GetOrdinal("guid"));
-                    string alias = reader.GetString(reader.GetOrdinal("alias"));
+                    while (reader.Read())
+                    {
+                        string guid = reader.GetString(reader.GetOrdinal("guid"));
+                        string alias = reader.GetString(reader.GetOrdinal("alias"));
 
-                    groups.Add(new GroupAlias { guid = guid, alias = alias });
+                        groups.Add(new GroupAlias { guid = guid, alias = alias });
 
+                    }
                 }
             }
+            connection.Close();
+            return groups;
         }
-        connection.Close();
-        return groups;
+        catch (NpgsqlException e)
+        {
+            logger.Warn("Failed to get group aliases from SmartDispatchPlusV1 Database: " + e.Message);
+            return new List<GroupAlias>();
+        }
     }
 
     async public IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date)

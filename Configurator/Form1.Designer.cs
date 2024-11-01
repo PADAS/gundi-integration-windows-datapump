@@ -41,7 +41,6 @@ namespace Configurator
             label_database_type = new Label();
             button_close = new Button();
             test_connection_button = new Button();
-            label_test_connection_status = new Label();
             database_name_label = new Label();
             database_name = new TextBox();
             database_schema_label = new Label();
@@ -151,7 +150,7 @@ namespace Configurator
             button_close.TabIndex = 7;
             button_close.Text = "Close";
             button_close.UseVisualStyleBackColor = true;
-            button_close.Click += button_close_click;
+            button_close.Click += CloseButtonClick;
             // 
             // test_connection_button
             // 
@@ -162,16 +161,6 @@ namespace Configurator
             test_connection_button.Text = "&Test Connecction";
             test_connection_button.UseVisualStyleBackColor = true;
             test_connection_button.Click += testConnectionButtonClick;
-            // 
-            // label_test_connection_status
-            // 
-            label_test_connection_status.AutoSize = true;
-            label_test_connection_status.Location = new Point(20, 393);
-            label_test_connection_status.Name = "label_test_connection_status";
-            label_test_connection_status.Size = new Size(85, 15);
-            label_test_connection_status.TabIndex = 13;
-            label_test_connection_status.Text = "<placeholder>";
-            label_test_connection_status.Visible = false;
             // 
             // database_name_label
             // 
@@ -239,7 +228,6 @@ namespace Configurator
             tabDatabaseConnection.Controls.Add(label2);
             tabDatabaseConnection.Controls.Add(database_name_label);
             tabDatabaseConnection.Controls.Add(database_username);
-            tabDatabaseConnection.Controls.Add(label_test_connection_status);
             tabDatabaseConnection.Controls.Add(label3);
             tabDatabaseConnection.Controls.Add(test_connection_button);
             tabDatabaseConnection.Controls.Add(database_password);
@@ -260,14 +248,14 @@ namespace Configurator
             tabGundiConnection.Location = new Point(4, 24);
             tabGundiConnection.Name = "tabGundiConnection";
             tabGundiConnection.Padding = new Padding(3);
-            tabGundiConnection.Size = new Size(832, 420);
+            tabGundiConnection.Size = new Size(832, 538);
             tabGundiConnection.TabIndex = 1;
             tabGundiConnection.Text = "Gundi Connections";
             tabGundiConnection.UseVisualStyleBackColor = true;
             // 
             // fetchGroupsButton
             // 
-            fetchGroupsButton.Location = new Point(681, 39);
+            fetchGroupsButton.Location = new Point(157, 6);
             fetchGroupsButton.Name = "fetchGroupsButton";
             fetchGroupsButton.Size = new Size(143, 23);
             fetchGroupsButton.TabIndex = 12;
@@ -278,7 +266,7 @@ namespace Configurator
             // button_addGundiConnection
             // 
             button_addGundiConnection.FlatStyle = FlatStyle.System;
-            button_addGundiConnection.Location = new Point(681, 6);
+            button_addGundiConnection.Location = new Point(8, 6);
             button_addGundiConnection.Name = "button_addGundiConnection";
             button_addGundiConnection.Size = new Size(143, 23);
             button_addGundiConnection.TabIndex = 11;

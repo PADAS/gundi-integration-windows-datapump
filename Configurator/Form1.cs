@@ -31,7 +31,6 @@ namespace Configurator
         private Label label_database_type;
         private Button button_close;
         private Button test_connection_button;
-        private Label label_test_connection_status;
         private Label database_name_label;
         private TextBox database_name;
         private Label database_schema_label;
@@ -39,6 +38,7 @@ namespace Configurator
         private Label save_message_label;
 
         private AppSettingsManager appSettingsManager;
+        private Timer _statusTimer = new Timer();
 
         public RadioServiceConfigForm()
         {
@@ -56,9 +56,14 @@ namespace Configurator
             BindControls();
             InitializeGundiConnectionControls(configuration);
 
-            if (configuration.DatabaseType == null)
+            //if (configuration.DatabaseType == null)
+            //{
+            //    configuration.DatabaseType = database_type.SelectedItem as SupportedReader;
+            //}
+            if (configuration.DatabaseType != null)
             {
-                configuration.DatabaseType = database_type.SelectedItem as SupportedReader;
+                database_type.SelectedItem = configuration.DatabaseType;
+                database_type.SelectedIndex = database_type.FindStringExact(configuration.DatabaseType.Name);
             }
 
         }
@@ -67,7 +72,7 @@ namespace Configurator
         {
 
             configuration.gundiConnections.ForEach(route =>
-                addGundiConnection(null, null, route)
+                AddGundiConnection(null, null, route)
             );
 
         }
@@ -84,7 +89,7 @@ namespace Configurator
             database_password.DataBindings.Add("Text", configuration, "Password", false, DataSourceUpdateMode.OnPropertyChanged);
         }
 
-        private void saveConfiguration()
+        private void SaveConfiguration()
         {
 
             configuration.gundiConnections.ForEach(gc =>
@@ -101,36 +106,37 @@ namespace Configurator
         private void SaveButtonClick(object sender, EventArgs e)
         {
 
-            saveConfiguration();
+            SaveConfiguration();
             setStatusMessage("Configuration Saved", Color.Green);
 
         }
 
-        private void button_close_click(object sender, EventArgs e)
+        private void CloseButtonClick(object sender, EventArgs e)
         {
             this.Close();
         }
 
-        private void adjustConnectionPositions(object sender, EventArgs e)
+        private void AdjustConnectionPositions(object sender, EventArgs e)
         {
             var index = 0;
             gundiConnectionControls.ForEach(card =>
             {
-                card.TopOffset = 10 + index * 190;
+                card.TopOffset = 40 + index * 190;
                 index = index + 1;
             });
         }
 
 
-        private void addGundiConnection(object sender, EventArgs e)
+        private void AddGundiConnection(object sender, EventArgs e)
         {
             var gundiConnection = new GundiConnection();
             gundiConnection.ConnectionName = "Connection " + (configuration.gundiConnections.Count + 1);
             gundiConnection.Destination = "https://sensors.api.gundiservice.org";
             configuration.gundiConnections.Add(gundiConnection);
-            addGundiConnection(sender, e, gundiConnection);
+            AddGundiConnection(sender, e, gundiConnection);
         }
-        private void addGundiConnection(object sender, EventArgs e, GundiConnection gundiConnection)
+
+        private void AddGundiConnection(object sender, EventArgs e, GundiConnection gundiConnection)
         {
 
             var gundiConnectionCard = new GundiConnectionControl(configuration.gundiConnections.Count);
@@ -139,7 +145,6 @@ namespace Configurator
             gundiConnectionCard.ConnectionNameTextBox.DataBindings.Add("Text", gundiConnection, "ConnectionName", false, DataSourceUpdateMode.OnPropertyChanged);
             gundiConnectionCard.GundiApiKeyTextBox.DataBindings.Add("Text", gundiConnection, "ApiKey", false, DataSourceUpdateMode.OnPropertyChanged);
             gundiConnectionCard.GundiDestinationComboBox.DataBindings.Add("Text", gundiConnection, "Destination", false, DataSourceUpdateMode.OnPropertyChanged);
-            gundiConnectionCard.SendEverythingCheckBox.DataBindings.Add("Checked", gundiConnection, "SendEverything", false, DataSourceUpdateMode.OnPropertyChanged);
 
             //gundiConnectionCard.GroupsListBox.DataSource = groupAliases;
             gundiConnectionCard.GroupsListBox.DisplayMember = "alias";
@@ -222,32 +227,36 @@ namespace Configurator
 
             var selectedReader = (SupportedReader)database_type.SelectedItem;
 
-            if (selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus
-                               || selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartOneDispatch)
+            if (selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus)
             {
-                gundiConnectionCard.GroupsLabel.ForeColor = Color.Black;
+                gundiConnectionCard.GroupsLabel.Visible = true;
                 gundiConnectionCard.GroupsListBox.Enabled = true;
+                fetchGroupsButton.Visible = true;
             }
             else
             {
-                gundiConnectionCard.GroupsLabel.ForeColor = Color.Gray;
+                gundiConnectionCard.GroupsLabel.Visible = false;
+                gundiConnectionCard.GroupsListBox.Visible = false;
                 gundiConnectionCard.GroupsListBox.Enabled = false;
+                fetchGroupsButton.Visible = false;
             }
 
             database_type.SelectedIndexChanged += (s, args) =>
             {
                 var selectedReader = (SupportedReader)database_type.SelectedItem;
 
-                if (selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus
-                                   || selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartOneDispatch)
+                if (selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus)
                 {
-                    gundiConnectionCard.GroupsLabel.ForeColor = Color.Black;
+                    gundiConnectionCard.GroupsLabel.Visible = true;
                     gundiConnectionCard.GroupsListBox.Enabled = true;
+                    fetchGroupsButton.Visible = true;
                 }
                 else
                 {
-                    gundiConnectionCard.GroupsLabel.ForeColor = Color.Gray;
+                    gundiConnectionCard.GroupsLabel.Visible = false;
+                    gundiConnectionCard.GroupsListBox.Visible = false;
                     gundiConnectionCard.GroupsListBox.Enabled = false;
+                    fetchGroupsButton.Visible = false;
                 }
 
                 configuration.gundiConnections.ForEach(route =>
@@ -266,28 +275,13 @@ namespace Configurator
                 configuration.gundiConnections.Remove(gundiConnection);
                 tabGundiConnection.Controls.Remove(gundiConnectionCard.Panel);
                 gundiConnectionControls.Remove(gundiConnectionCard);
-                adjustConnectionPositions(sender, e);
+                AdjustConnectionPositions(sender, e);
             };
-            adjustConnectionPositions(sender, e);
+            AdjustConnectionPositions(sender, e);
         }
 
-        private void Database_type_SelectedIndexChanged(object? sender, EventArgs e)
+        private IDataReader GetDataReader()
         {
-            throw new NotImplementedException();
-        }
-
-        private void testConnectionButtonClick(object sender, EventArgs e)
-        {
-
-            label_test_connection_status.Visible = false;
-
-
-            if (this.database_type.SelectedItem == null)
-            {
-                MessageBox.Show("Please select a database type.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
             IDataReader reader = null;
 
             var selectedReader = (SupportedReader)database_type.SelectedItem;
@@ -298,14 +292,6 @@ namespace Configurator
                 reader = new SmartDispatchPlusV1Reader(this.database_hostname.Text,
                     this.database_name.Text, this.database_username.Text, this.database_password.Text,
                     this.database_schema.Text);
-
-                reader.GetGroupAliases().ForEach(item =>
-                {
-                    if (!groupAliases.Contains(item))
-                    {
-                        groupAliases.Add(item);
-                    }
-                });
 
             }
             if (selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartOneDispatch)
@@ -328,7 +314,20 @@ namespace Configurator
                                                           this.database_name.Text, this.database_username.Text, this.database_password.Text);
             }
 
+            return reader;
 
+        }
+
+        private void testConnectionButtonClick(object sender, EventArgs e)
+        {
+
+            if (this.database_type.SelectedItem == null)
+            {
+                MessageBox.Show("Please select a database type.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            IDataReader reader = GetDataReader();
             if (reader != null)
             {
                 var result = reader.TestConnection();
@@ -342,29 +341,47 @@ namespace Configurator
                     setStatusMessage("Connection failed.", Color.DarkRed);
                     MessageBox.Show("Error: " + result.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
-                label_test_connection_status.Visible = true;
-
-
             }
 
         }
-        private Timer _timer = new Timer();
+
+        private void RefreshGroups(object sender, EventArgs e)
+        {
+
+            if (this.database_type.SelectedItem == null)
+            {
+                MessageBox.Show("Please select a database type.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            IDataReader reader = GetDataReader();
+
+            reader.GetGroupAliases().ForEach(item =>
+            {
+                if (!groupAliases.Contains(item))
+                {
+                    groupAliases.Add(item);
+                }
+            });
+
+        }
+
         private void setStatusMessage(string message, Color color)
         {
             statusLabel.Text = message;
             statusLabel.ForeColor = color;
-            if (_timer.Enabled)
+            if (_statusTimer.Enabled)
             {
-                _timer.Stop();
+                _statusTimer.Stop();
             }
-            _timer.Interval = 5000; // 2 seconds
-            _timer.Tick += (s, args) =>
+            _statusTimer.Interval = 5000; // ms
+            _statusTimer.Tick += (s, args) =>
             {
-                _timer.Stop();
+                _statusTimer.Stop();
                 statusLabel.Text = "";
 
             };
-            _timer.Start();
+            _statusTimer.Start();
 
         }
 
@@ -388,33 +405,17 @@ namespace Configurator
         // Event handler that sets TestMessage.Visible to false
         private void AnyControl_ValueChanged(object sender, EventArgs e)
         {
-            label_test_connection_status.Visible = false;
             statusLabel.Text = "";
-        }
-
-        private void label4_Click(object sender, EventArgs e)
-        {
-
-        }
-
-        private void listBox1_SelectedIndexChanged(object sender, EventArgs e)
-        {
-
-        }
-
-        private void toolStripStatusLabel1_Click(object sender, EventArgs e)
-        {
-
         }
 
         private void gundiConnectionsAddButtonClick(object sender, EventArgs e)
         {
-            addGundiConnection(sender, e);
+            AddGundiConnection(sender, e);
         }
 
         private void fetchGroupsButton_Click(object sender, EventArgs e)
         {
-            testConnectionButtonClick(sender, e);
+            RefreshGroups(sender, e);
         }
 
     }
@@ -435,8 +436,6 @@ namespace Configurator
         public Label GroupsLabel { get; set; }
         public CheckedListBox GroupsListBox { get; set; }
 
-        public CheckBox SendEverythingCheckBox { get; set; }
-
         public Button DeleteButton { get; set; }
 
 
@@ -456,7 +455,7 @@ namespace Configurator
         {
             Panel = new Panel()
             {
-                Width = 680,
+                Width = 780,
                 Height = 180,
             };
             Panel.BorderStyle = BorderStyle.FixedSingle;
@@ -475,7 +474,7 @@ namespace Configurator
             {
                 Top = 5,
                 Left = 220,
-                Width = 230,
+                Width = 330,
                 TabIndex = 1
             };
 
@@ -493,7 +492,7 @@ namespace Configurator
             {
                 Top = 35,
                 Left = 220,
-                Width = 230,
+                Width = 330,
                 TabIndex = 2
             };
 
@@ -516,24 +515,15 @@ namespace Configurator
             {
                 Top = 65,
                 Left = 220,
-                Width = 230,
+                Width = 330,
                 TabIndex = 3
-            };
-
-            SendEverythingCheckBox = new CheckBox()
-            {
-                Text = "Send Everything",
-                Top = 95,
-                Left = 10,
-                Width = 220,
-                TabIndex = 4
             };
 
             GroupsLabel = new Label()
             {
                 Text = "Groups",
                 Top = 5,
-                Left = 460,
+                Left = 560,
                 Width = 150,
                 TabIndex = 5,
             };
@@ -541,7 +531,7 @@ namespace Configurator
             GroupsListBox = new CheckedListBox()
             {
                 Top = 35,
-                Left = 460,
+                Left = 560,
                 Width = 150,
                 Height = 100,
                 TabIndex = 6,
@@ -550,26 +540,18 @@ namespace Configurator
             {
                 Text = "Remove",
                 Top = 5,
-                Left = 610,
+                Left = 710,
                 Width = 60,
                 TabIndex = 5
             };
 
             var controls = new List<Control>() { ConnectionNameLabel, ConnectionNameTextBox, GundiApiKeyLabel, GundiApiKeyTextBox, GundiDestinationLabel, GundiDestinationComboBox,
-                SendEverythingCheckBox, GroupsLabel, GroupsListBox, DeleteButton };
+                GroupsLabel, GroupsListBox, DeleteButton };
             controls.ForEach(Panel.Controls.Add);
 
             DeleteButton.Click += (sender, e) =>
             {
                 Panel.Dispose();
-                //ConnectionNameLabel.Dispose();
-                //ConnectionNameTextBox.Dispose();
-                //GundiApiKeyLabel.Dispose();
-                //GundiApiKeyTextBox.Dispose();
-                //GundiDestinationComboBox.Dispose();
-                //GundiDestinationLabel.Dispose();
-                //SendEverythingCheckBox.Dispose();
-                //DeleteButton.Dispose();
             };
 
 
