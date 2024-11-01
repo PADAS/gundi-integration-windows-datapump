@@ -79,13 +79,13 @@ namespace Configurator
             // 
             // button_save
             // 
-            button_save.Location = new Point(742, 454);
+            button_save.Location = new Point(753, 572);
             button_save.Name = "button_save";
             button_save.Size = new Size(75, 23);
             button_save.TabIndex = 6;
             button_save.Text = "Save";
             button_save.UseVisualStyleBackColor = true;
-            button_save.Click += button_save_click;
+            button_save.Click += SaveButtonClick;
             // 
             // label2
             // 
@@ -145,7 +145,7 @@ namespace Configurator
             // 
             // button_close
             // 
-            button_close.Location = new Point(661, 454);
+            button_close.Location = new Point(672, 572);
             button_close.Name = "button_close";
             button_close.Size = new Size(75, 23);
             button_close.TabIndex = 7;
@@ -211,11 +211,10 @@ namespace Configurator
             // 
             save_message_label.AutoSize = true;
             save_message_label.ForeColor = Color.Green;
-            save_message_label.Location = new Point(742, 480);
+            save_message_label.Location = new Point(753, 580);
             save_message_label.Name = "save_message_label";
-            save_message_label.Size = new Size(41, 15);
+            save_message_label.Size = new Size(0, 15);
             save_message_label.TabIndex = 17;
-            save_message_label.Text = "Saved.";
             save_message_label.Visible = false;
             // 
             // tabControl1
@@ -226,7 +225,7 @@ namespace Configurator
             tabControl1.Location = new Point(0, 0);
             tabControl1.Name = "tabControl1";
             tabControl1.SelectedIndex = 0;
-            tabControl1.Size = new Size(840, 448);
+            tabControl1.Size = new Size(840, 566);
             tabControl1.TabIndex = 18;
             // 
             // tabDatabaseConnection
@@ -248,11 +247,10 @@ namespace Configurator
             tabDatabaseConnection.Location = new Point(4, 24);
             tabDatabaseConnection.Name = "tabDatabaseConnection";
             tabDatabaseConnection.Padding = new Padding(3);
-            tabDatabaseConnection.Size = new Size(832, 420);
+            tabDatabaseConnection.Size = new Size(832, 538);
             tabDatabaseConnection.TabIndex = 0;
             tabDatabaseConnection.Text = "Database Connection";
             tabDatabaseConnection.UseVisualStyleBackColor = true;
-            tabDatabaseConnection.Click += tabDatabaseConnection_Click;
             // 
             // tabGundiConnection
             // 
@@ -291,7 +289,7 @@ namespace Configurator
             // statusStrip
             // 
             statusStrip.Items.AddRange(new ToolStripItem[] { statusLabel });
-            statusStrip.Location = new Point(0, 482);
+            statusStrip.Location = new Point(0, 605);
             statusStrip.Name = "statusStrip";
             statusStrip.Size = new Size(840, 22);
             statusStrip.TabIndex = 19;
@@ -305,7 +303,7 @@ namespace Configurator
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(840, 504);
+            ClientSize = new Size(840, 627);
             Controls.Add(statusStrip);
             Controls.Add(tabControl1);
             Controls.Add(save_message_label);

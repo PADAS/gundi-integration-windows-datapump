@@ -60,7 +60,7 @@ namespace Configurator
             {
                 configuration.DatabaseType = database_type.SelectedItem as SupportedReader;
             }
-                
+
         }
 
         private void InitializeGundiConnectionControls(RouteConfiguration configuration)
@@ -87,21 +87,22 @@ namespace Configurator
         private void saveConfiguration()
         {
 
-            configuration.gundiConnections.ForEach (gc =>
+            configuration.gundiConnections.ForEach(gc =>
             {
                 gc.ApiKey = gc.ApiKey?.Trim() ?? "";
                 gc.Destination = gc.Destination?.Trim() ?? "";
                 gc.ConnectionName = gc.ConnectionName?.Trim() ?? "";
-            }) ;
+            });
             appSettingsManager.SaveValue();
 
 
         }
 
-        private void button_save_click(object sender, EventArgs e)
+        private void SaveButtonClick(object sender, EventArgs e)
         {
 
             saveConfiguration();
+            setStatusMessage("Configuration Saved", Color.Green);
 
         }
 
@@ -115,7 +116,7 @@ namespace Configurator
             var index = 0;
             gundiConnectionControls.ForEach(card =>
             {
-                card.TopOffset = 5 + index * 140;
+                card.TopOffset = 10 + index * 190;
                 index = index + 1;
             });
         }
@@ -202,18 +203,18 @@ namespace Configurator
                 gundiConnection.GroupAliases = gundiConnectionCard.GroupsListBox.CheckedItems.Cast<GroupAlias>().ToList();
                 gundiConnectionCard.GroupsListBox.ClearSelected();
             };
-            
+
             // Suppress highlighting of the selected item
             gundiConnectionCard.GroupsListBox.MouseDown += (s, args) =>
             {
                 // Find the item under the mouse pointer
                 int index = gundiConnectionCard.GroupsListBox.IndexFromPoint(args.Location);
-                
+
                 if (index != -1)
                 {
                     // Toggle the checked state without changing the selection
                     gundiConnectionCard.GroupsListBox.SetItemChecked(index, !gundiConnectionCard.GroupsListBox.GetItemChecked(index));
-                    
+
                     // Prevent item selection
                     gundiConnectionCard.GroupsListBox.ClearSelected();
                 }
@@ -222,8 +223,8 @@ namespace Configurator
             var selectedReader = (SupportedReader)database_type.SelectedItem;
 
             if (selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus
-                               || selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartOneDispatch) 
-            { 
+                               || selectedReader.Type == RadioServiceConfiguration.ReaderType.SmartOneDispatch)
+            {
                 gundiConnectionCard.GroupsLabel.ForeColor = Color.Black;
                 gundiConnectionCard.GroupsListBox.Enabled = true;
             }
@@ -257,30 +258,13 @@ namespace Configurator
             };
 
 
-            tabGundiConnection.Controls.Add(gundiConnectionCard.ConnectionNameLabel);
-            tabGundiConnection.Controls.Add(gundiConnectionCard.ConnectionNameTextBox);
-            tabGundiConnection.Controls.Add(gundiConnectionCard.GundiApiKeyLabel);
-            tabGundiConnection.Controls.Add(gundiConnectionCard.GundiApiKeyTextBox);
-            tabGundiConnection.Controls.Add(gundiConnectionCard.GundiDestinationLabel);
-            tabGundiConnection.Controls.Add(gundiConnectionCard.GundiDestinationComboBox);
-            tabGundiConnection.Controls.Add(gundiConnectionCard.SendEverythingCheckBox);
-            tabGundiConnection.Controls.Add(gundiConnectionCard.DeleteButton);
-            tabGundiConnection.Controls.Add(gundiConnectionCard.GroupsLabel);
-            tabGundiConnection.Controls.Add(gundiConnectionCard.GroupsListBox);
+            tabGundiConnection.Controls.Add(gundiConnectionCard.Panel);
+
             gundiConnectionCard.DeleteButton.Click += (sender, e) =>
             {
-                tabGundiConnection.Controls.Remove(gundiConnectionCard.ConnectionNameLabel);
-                tabGundiConnection.Controls.Remove(gundiConnectionCard.ConnectionNameTextBox);
-                tabGundiConnection.Controls.Remove(gundiConnectionCard.GundiApiKeyLabel);
-                tabGundiConnection.Controls.Remove(gundiConnectionCard.GundiApiKeyTextBox);
-                tabGundiConnection.Controls.Remove(gundiConnectionCard.GundiDestinationLabel);
-                tabGundiConnection.Controls.Remove(gundiConnectionCard.GundiDestinationComboBox);
-                tabGundiConnection.Controls.Remove(gundiConnectionCard.SendEverythingCheckBox);
-                tabGundiConnection.Controls.Remove(gundiConnectionCard.GroupsLabel);
-                tabGundiConnection.Controls.Remove(gundiConnectionCard.GroupsListBox);
-                tabGundiConnection.Controls.Remove(gundiConnectionCard.DeleteButton);
 
                 configuration.gundiConnections.Remove(gundiConnection);
+                tabGundiConnection.Controls.Remove(gundiConnectionCard.Panel);
                 gundiConnectionControls.Remove(gundiConnectionCard);
                 adjustConnectionPositions(sender, e);
             };
@@ -351,32 +335,36 @@ namespace Configurator
 
                 if (result.Success)
                 {
-                    label_test_connection_status.Text = "Connection successful.";
-                    label_test_connection_status.ForeColor = Color.Green;
-                    statusLabel.Text = "Connection successful.";
-                    statusLabel.ForeColor = Color.Green;
+                    setStatusMessage("Connection successful.", Color.Green);
                 }
                 else
                 {
-                    label_test_connection_status.Text = "Connection failed.";
-                    label_test_connection_status.ForeColor = Color.DarkRed;
-                    statusLabel.Text = "Connection failed.";
-                    statusLabel.ForeColor = Color.DarkRed;
+                    setStatusMessage("Connection failed.", Color.DarkRed);
                     MessageBox.Show("Error: " + result.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
                 label_test_connection_status.Visible = true;
 
 
-                Timer timer = new Timer();
-                timer.Interval = 5000; // 2 seconds
-                timer.Tick += (s, args) =>
-                {
-                    timer.Stop();
-                    statusLabel.Text = "";
-
-                };
-                timer.Start();
             }
+
+        }
+        private Timer _timer = new Timer();
+        private void setStatusMessage(string message, Color color)
+        {
+            statusLabel.Text = message;
+            statusLabel.ForeColor = color;
+            if (_timer.Enabled)
+            {
+                _timer.Stop();
+            }
+            _timer.Interval = 5000; // 2 seconds
+            _timer.Tick += (s, args) =>
+            {
+                _timer.Stop();
+                statusLabel.Text = "";
+
+            };
+            _timer.Start();
 
         }
 
@@ -409,11 +397,6 @@ namespace Configurator
 
         }
 
-        private void tabDatabaseConnection_Click(object sender, EventArgs e)
-        {
-
-        }
-
         private void listBox1_SelectedIndexChanged(object sender, EventArgs e)
         {
 
@@ -433,10 +416,13 @@ namespace Configurator
         {
             testConnectionButtonClick(sender, e);
         }
+
     }
 
     public class GundiConnectionControl
     {
+        public Panel Panel { get; set; }
+
         public Label ConnectionNameLabel { get; set; }
         public TextBox ConnectionNameTextBox { get; set; }
 
@@ -462,32 +448,24 @@ namespace Configurator
             set
             {
                 top_offset = value;
-                ConnectionNameLabel.Top = top_offset;
-                ConnectionNameTextBox.Top = top_offset;
-                ConnectionNameTextBox.TabIndex = top_offset + 500;
-                GundiDestinationLabel.Top = top_offset + 30;
-                GundiDestinationComboBox.Top = top_offset + 30;
-                GundiDestinationComboBox.TabIndex = top_offset + 501;
-                GundiApiKeyLabel.Top = top_offset + 60;
-                GundiApiKeyTextBox.Top = top_offset + 60;
-                GundiApiKeyTextBox.TabIndex = top_offset + 502;
-                SendEverythingCheckBox.Top = top_offset + 90;
-                SendEverythingCheckBox.TabIndex = top_offset + 503;
-
-                GroupsLabel.Top = top_offset;
-                GroupsListBox.Top = top_offset + 30;
-                DeleteButton.Top = top_offset;
+                Panel.Top = top_offset;
             }
         }
 
         public GundiConnectionControl(int index)
         {
+            Panel = new Panel()
+            {
+                Width = 680,
+                Height = 180,
+            };
+            Panel.BorderStyle = BorderStyle.FixedSingle;
 
             // Initialize the source identifier label
             ConnectionNameLabel = new Label()
             {
                 Text = "Connection Name",
-                Top = 0,
+                Top = 5,
                 Left = 10,
                 Width = 200,
             };
@@ -495,7 +473,7 @@ namespace Configurator
             // Initialize the source identifier textbox
             ConnectionNameTextBox = new TextBox()
             {
-                Top = 0,
+                Top = 5,
                 Left = 220,
                 Width = 230,
                 TabIndex = 1
@@ -505,7 +483,7 @@ namespace Configurator
             GundiDestinationLabel = new Label()
             {
                 Text = "Gundi Service URL",
-                Top = 0,
+                Top = 35,
                 Left = 10,
                 Width = 200
             };
@@ -513,14 +491,14 @@ namespace Configurator
             // Initialize the destination identifier textbox
             GundiDestinationComboBox = new ComboBox()
             {
-                Top = 0,
+                Top = 35,
                 Left = 220,
                 Width = 230,
                 TabIndex = 2
             };
 
             //GundiDestinationComboBox.Items.AddRange(new object[] { "https://sensors.api.gundiservice.org", "https://sensors.api.stage.gundiservice.org" });
-            GundiDestinationComboBox.Items.AddRange(new object[] { "https://sensors.api.gundiservice.org"});
+            GundiDestinationComboBox.Items.AddRange(new object[] { "https://sensors.api.gundiservice.org" });
 
             GundiDestinationComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
 
@@ -528,7 +506,7 @@ namespace Configurator
             GundiApiKeyLabel = new Label()
             {
                 Text = "Gundi API Key",
-                Top = 0,
+                Top = 65,
                 Left = 10,
                 Width = 200
             };
@@ -536,7 +514,7 @@ namespace Configurator
             // Initialize the destination identifier textbox
             GundiApiKeyTextBox = new TextBox()
             {
-                Top = 0,
+                Top = 65,
                 Left = 220,
                 Width = 230,
                 TabIndex = 3
@@ -545,7 +523,7 @@ namespace Configurator
             SendEverythingCheckBox = new CheckBox()
             {
                 Text = "Send Everything",
-                Top = 0,
+                Top = 95,
                 Left = 10,
                 Width = 220,
                 TabIndex = 4
@@ -554,7 +532,7 @@ namespace Configurator
             GroupsLabel = new Label()
             {
                 Text = "Groups",
-                Top = 0,
+                Top = 5,
                 Left = 460,
                 Width = 150,
                 TabIndex = 5,
@@ -562,7 +540,7 @@ namespace Configurator
 
             GroupsListBox = new CheckedListBox()
             {
-                Top = 0,
+                Top = 35,
                 Left = 460,
                 Width = 150,
                 Height = 100,
@@ -571,22 +549,27 @@ namespace Configurator
             DeleteButton = new Button()
             {
                 Text = "Remove",
-                Top = 0,
+                Top = 5,
                 Left = 610,
                 Width = 60,
                 TabIndex = 5
             };
 
+            var controls = new List<Control>() { ConnectionNameLabel, ConnectionNameTextBox, GundiApiKeyLabel, GundiApiKeyTextBox, GundiDestinationLabel, GundiDestinationComboBox,
+                SendEverythingCheckBox, GroupsLabel, GroupsListBox, DeleteButton };
+            controls.ForEach(Panel.Controls.Add);
+
             DeleteButton.Click += (sender, e) =>
             {
-                ConnectionNameLabel.Dispose();
-                ConnectionNameTextBox.Dispose();
-                GundiApiKeyLabel.Dispose();
-                GundiApiKeyTextBox.Dispose();
-                GundiDestinationComboBox.Dispose();
-                GundiDestinationLabel.Dispose();
-                SendEverythingCheckBox.Dispose();
-                DeleteButton.Dispose();
+                Panel.Dispose();
+                //ConnectionNameLabel.Dispose();
+                //ConnectionNameTextBox.Dispose();
+                //GundiApiKeyLabel.Dispose();
+                //GundiApiKeyTextBox.Dispose();
+                //GundiDestinationComboBox.Dispose();
+                //GundiDestinationLabel.Dispose();
+                //SendEverythingCheckBox.Dispose();
+                //DeleteButton.Dispose();
             };
 
 
