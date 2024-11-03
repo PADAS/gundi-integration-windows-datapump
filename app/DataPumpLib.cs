@@ -328,6 +328,7 @@ public class SmartDispatchPlusV1Reader : IDataReader
         _database_name = database_name;
 
         _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;";    
+        logger.Info("Created SmartDispatchPlusV1Reader with connection string: " + _connectionString); 
     }
 
 
