@@ -24,7 +24,8 @@ public class KAS20DataReader : IDataReader
     {
 
         _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
-    
+        logger.Info($"Created KAS20DataReader. host: {database_server}, db: {database_name}, user: {database_user}");
+
     }
 
     public TestResult TestConnection()
@@ -175,6 +176,7 @@ public class TrbonetPlusDataReader : IDataReader
     {
 
         _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
+        logger.Info($"Created TrbonetPlusDataReader. host: {database_server}, db: {database_name}, user: {database_user}");
 
     }
 
@@ -328,7 +330,7 @@ public class SmartDispatchPlusV1Reader : IDataReader
         _database_name = database_name;
 
         _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;";    
-        logger.Info("Created SmartDispatchPlusV1Reader with connection string: " + _connectionString); 
+        logger.Info($"Created SmartDispatchPlusV1Reader. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}"); 
     }
 
 
@@ -421,7 +423,6 @@ public class SmartDispatchPlusV1Reader : IDataReader
             " LIMIT 1000;";
 
 
-
         connection.Open();
 
 
@@ -505,6 +506,7 @@ public class SmartOneDispatchReader : IDataReader
         _database_name = database_name;
         _database_schema = database_schema;
         _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;";
+        logger.Info($"Created SmartOneDispatchReader. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}");
     }
 
     public TestResult TestConnection()

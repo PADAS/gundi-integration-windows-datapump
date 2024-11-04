@@ -82,13 +82,6 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
                 logger.Info("Date: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:sszzz"));
 
 
-                if (config.destination == null)
-                {
-                    logger.Info("destination is null. Stubbornly refusing to run.");
-                    return;
-                }
-
-
                 IDataReader reader;
                 IDataWriter data_writer;
                 if (routeConfiguration.DatabaseType.Type == RadioServiceConfiguration.ReaderType.KAS20) {
@@ -115,7 +108,7 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
                 }
                 else
                 {
-                    logger.Error("Stubbornly refusing to run. Unknown reader type: " + config.reader_type);
+                    logger.Error("Stubbornly refusing to run because I'm no t configured with a database type.");
                     return;
                 }
 

@@ -49,7 +49,7 @@ namespace DataPump
                 {
                     string json = File.ReadAllText(stateFilePath);
                     _state = JsonSerializer.Deserialize<State>(json);
-                    logger.Info("State loaded successfully.");
+                    logger.Info($"State loaded successfully from file {stateFilePath}.");
 
                 }
                 else
