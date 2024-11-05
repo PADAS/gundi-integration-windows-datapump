@@ -69,6 +69,11 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
         var routeConfiguration = new RouteConfiguration();
         _configuration.GetSection("RouteConfiguration").Bind(routeConfiguration);
 
+        if (routeConfiguration.DatabaseType == null)
+        {
+            logger.Error("Database type not configured. Please run \"radioservice.exe /configure\" as a Windows Administrator.");
+            Environment.Exit(1);
+        }
         try
         {
             while (!stoppingToken.IsCancellationRequested)

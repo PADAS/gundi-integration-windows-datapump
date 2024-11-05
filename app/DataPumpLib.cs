@@ -174,7 +174,6 @@ public class TrbonetPlusDataReader : IDataReader
     private static Logger logger = LogManager.GetCurrentClassLogger();
     public TrbonetPlusDataReader(string database_server, string database_name, string database_user, string database_password)
     {
-
         _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
         logger.Info($"Created TrbonetPlusDataReader. host: {database_server}, db: {database_name}, user: {database_user}");
 
@@ -330,7 +329,7 @@ public class SmartDispatchPlusV1Reader : IDataReader
         _database_name = database_name;
 
         _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;";    
-        logger.Info($"Created SmartDispatchPlusV1Reader. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}"); 
+        logger.Info($"Created {GetType().Name}. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}"); 
     }
 
 
