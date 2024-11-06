@@ -81,7 +81,7 @@ namespace Configurator
             button_save.Location = new Point(753, 572);
             button_save.Name = "button_save";
             button_save.Size = new Size(75, 23);
-            button_save.TabIndex = 6;
+            button_save.TabIndex = 8;
             button_save.Text = "Save";
             button_save.UseVisualStyleBackColor = true;
             button_save.Click += SaveButtonClick;
@@ -157,7 +157,7 @@ namespace Configurator
             test_connection_button.Location = new Point(20, 358);
             test_connection_button.Name = "test_connection_button";
             test_connection_button.Size = new Size(118, 23);
-            test_connection_button.TabIndex = 5;
+            test_connection_button.TabIndex = 6;
             test_connection_button.Text = "&Test Connecction";
             test_connection_button.UseVisualStyleBackColor = true;
             test_connection_button.Click += testConnectionButtonClick;
@@ -193,7 +193,7 @@ namespace Configurator
             database_schema.Location = new Point(20, 320);
             database_schema.Name = "database_schema";
             database_schema.Size = new Size(402, 23);
-            database_schema.TabIndex = 16;
+            database_schema.TabIndex = 5;
             database_schema.TextChanged += AnyControl_ValueChanged;
             // 
             // save_message_label
