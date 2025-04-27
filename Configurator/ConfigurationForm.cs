@@ -56,15 +56,14 @@ namespace Configurator
             BindControls();
             InitializeGundiConnectionControls(configuration);
 
-            //if (configuration.DatabaseType == null)
-            //{
-            //    configuration.DatabaseType = database_type.SelectedItem as SupportedReader;
-            //}
-            if (configuration.DatabaseType != null)
+            // Set a sensible default for the database type.
+            if (configuration.DatabaseType == null)
             {
-                database_type.SelectedItem = configuration.DatabaseType;
-                database_type.SelectedIndex = database_type.FindStringExact(configuration.DatabaseType.Name);
+                configuration.DatabaseType = RadioDataPumpService.supportedReaders.FirstOrDefault();
             }
+
+            database_type.SelectedItem = configuration.DatabaseType;
+            database_type.SelectedIndex = database_type.FindStringExact(configuration.DatabaseType.Name);
 
         }
 
