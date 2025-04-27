@@ -78,7 +78,7 @@ Configure the Service.
 | Configuration Item | Example                              | Description                                                  |
 | :----------------- | :----------------------------------- | -----------------------------------------------------------: |
 | Destination      | Https://sensors.api.gundiservice.org | This is already set and should only be changed if directed by the Gundi engineering team. |
-| Gundi API Key    | `4b8241268712c896e8fbcc857b2343`     | This is a secret key for accessing Gundi's APIs. You'll get this value from https://gundiservice.org or from a Gundi team memeber. |
+| Gundi API Key    | `4b8241268712c896e8fbcc857b2343`     | This is a secret key for accessing Gundi's APIs. You'll get this value from https://gundiservice.org or from a Gundi team member. |
 | Database Type | Choose from: <br />* Kenwood KAS20<br />* Smart One Dispatch<br />* Smart Dispatch Plus<br />* TRBOnet Plus | This application supports two types of radio systems. |
 | Database Server | `localhost` | This is the server where the database is installed. Typically you can leave this as `localhost`. |
 | Database Name | `rds`or `KAS20` or `puc`or `TRBOnet1` | This is a the name of the database where your radio system records data. |
