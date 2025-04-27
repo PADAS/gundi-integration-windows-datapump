@@ -113,8 +113,7 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
                 }
                 else
                 {
-                    logger.Error("Stubbornly refusing to run because I'm no t configured with a database type.");
-                    return;
+                    logger.Error("Stubbornly refusing to run because I'm not configured with a database type.");
                 }
 
                 logger.Info("Starting up");
