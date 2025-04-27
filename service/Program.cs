@@ -30,7 +30,7 @@ internal class Program
         }
 
         // Set the current directory to the directory where the executable is located
-        // which is meaningful when this is startd as a service.
+        // which is meaningful when this is started as a service.
         Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
 
         if (args is { Length: 1 })
