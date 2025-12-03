@@ -729,7 +729,7 @@ public class GundiV2DataWriter : IDataWriter
         this._apikey = apikey;
         this._httpClient.DefaultRequestHeaders.Add("apikey", this._apikey);
         this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.1");
-        this._retryPolicy = GetRetryPolicy(new Random());
+        this._retryPolicy = GetRetryPolicy(Random.Shared);
         this.matchingGroups = new HashSet<string>();
 
         // configure timeout on the HttpClient and keep a copy locally

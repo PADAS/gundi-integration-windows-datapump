@@ -34,7 +34,7 @@ namespace DataPump
                     lower_date = item.cursor_at > lower_date ? item.cursor_at : lower_date;
                 }
 
-                await Task.Delay(this._intervalMs).ContinueWith(_ => logger.Debug("Tick."));
+                await Task.Delay(this._intervalMs, cancellationToken).ContinueWith(_ => logger.Debug("Tick."));
             }
             return 0;
         }
