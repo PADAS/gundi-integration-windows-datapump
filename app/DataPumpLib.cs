@@ -734,7 +734,6 @@ public class GundiV2DataWriter : IDataWriter
 
         // configure timeout on the HttpClient and keep a copy locally
         _httpTimeout = httpTimeout ?? TimeSpan.FromSeconds(30);
-        _httpClient.Timeout = _httpTimeout;
 
 
     }
