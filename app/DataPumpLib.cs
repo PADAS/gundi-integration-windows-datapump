@@ -735,7 +735,6 @@ public class GundiV2DataWriter : IDataWriter
         // configure timeout on the HttpClient and keep a copy locally
         _httpTimeout = httpTimeout ?? TimeSpan.FromSeconds(30);
 
-
     }
 
     public void AddMatchingGroup(string group)
