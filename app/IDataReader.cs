@@ -43,6 +43,6 @@ public class GroupAlias
 
     public override int GetHashCode()
     {
-        return $"{guid}{alias}".GetHashCode();
+        return guid.GetHashCode();
     }
 }
