@@ -10,7 +10,8 @@ using System.Data.SqlTypes;
 
 using Npgsql;
 using System;
-
+using System.ComponentModel;
+using Microsoft.IdentityModel.Tokens;
 
 public class KAS20DataReader : IDataReader
 {
@@ -23,9 +24,41 @@ public class KAS20DataReader : IDataReader
     {
 
         _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
-    
+        logger.Info($"Created KAS20DataReader. host: {database_server}, db: {database_name}, user: {database_user}");
+
     }
 
+    public TestResult TestConnection()
+    {
+        try
+        {
+
+
+            SqlConnection connection = new SqlConnection(this._connectionString);
+            var query = "select top 1 * from GpsLog;";
+            connection.Open();
+            using (SqlCommand command = new SqlCommand(query, connection))
+            {
+                using (SqlDataReader reader = command.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        return new TestResult(true, "All good.");
+                    }
+                }
+            }
+        }
+        catch (SqlException e)
+        {
+            return new TestResult(false, e.Message);
+        }
+        catch (Exception e)
+        {
+            logger.Warn("Exception: " + e.Message);
+        }   
+
+        return new TestResult(false, "Something went wrong.");
+    }
 
     private static decimal to_decimal_degrees(double value)
     {
@@ -141,11 +174,36 @@ public class TrbonetPlusDataReader : IDataReader
     private static Logger logger = LogManager.GetCurrentClassLogger();
     public TrbonetPlusDataReader(string database_server, string database_name, string database_user, string database_password)
     {
-
         _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
+        logger.Info($"Created TrbonetPlusDataReader. host: {database_server}, db: {database_name}, user: {database_user}");
 
     }
 
+    public TestResult TestConnection()
+    {
+       try
+        {
+            SqlConnection connection = new SqlConnection(this._connectionString);
+            var query = "SELECT TOP (1) device_id FROM [GpsInfo] order by id desc;";
+            connection.Open();
+
+            using (SqlCommand command = new SqlCommand(query, connection))
+            {
+                using (SqlDataReader reader = command.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        return new TestResult(true, "All good.");
+                    }
+                }   
+            }
+        }
+        catch (Exception e)
+        {
+            return new TestResult(false, e.Message);
+        }
+        return new TestResult(false, "Something went wrong.");
+    }
 
 
 
@@ -255,20 +313,92 @@ public class TrbonetPlusDataReader : IDataReader
     }
 }
 
+
 public class SmartDispatchPlusV1Reader : IDataReader
 {
 
     private string _connectionString;
-    private int _kas20_system_id;
-    private int counter = 0;
+
+    private string _database_schema;
+    private string _database_name;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
     public SmartDispatchPlusV1Reader(string database_server, string database_name, string database_user, string database_password, string database_schema)
     {
+        _database_schema = database_schema;
+        _database_name = database_name;
+
         _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;";    
+        logger.Info($"Created {GetType().Name}. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}"); 
     }
 
 
+    public TestResult TestConnection()
+    {
+
+        try {
+            using NpgsqlConnection connection = new NpgsqlConnection(this._connectionString);
+            connection.Open();
+            using (NpgsqlCommand command = new NpgsqlCommand("SELECT schema_name from information_schema.schemata where schema_name = @schema and catalog_name = @catalog", connection))
+            {
+                command.Parameters.AddWithValue("@schema", this._database_schema);
+                command.Parameters.AddWithValue("@catalog", this._database_name);
+                var val = command.ExecuteScalar();
+                Console.WriteLine("Connection test successful. Value: " + val);
+
+                if (val == null)
+                {
+                    return new TestResult(false, "Schema not found. " + this._database_schema);
+                }
+                return new TestResult(true, "All good.");
+            }
+        }
+        catch (System.ArgumentException e)
+        {
+            return new TestResult(false, e.Message);
+        }
+        catch (System.Net.Sockets.SocketException se)
+        {
+            return new TestResult(false, se.Message);
+        }
+        catch (NpgsqlException e)
+        {
+            Console.WriteLine("Connection test failed. Exception: " + e.Message);
+            return new TestResult(false, e.Message);
+        }
+    }
+
+    public List<GroupAlias> GetGroupAliases() {
+
+        try
+        {
+            using NpgsqlConnection connection = new NpgsqlConnection(this._connectionString);
+            connection.Open();
+
+            var groups = new List<GroupAlias>();
+            using (NpgsqlCommand command = new NpgsqlCommand("SELECT guid, alias from dbo.devicegroup where enableflag = true", connection))
+            {
+                using (NpgsqlDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        string guid = reader.GetString(reader.GetOrdinal("guid"));
+                        string alias = reader.GetString(reader.GetOrdinal("alias"));
+
+                        groups.Add(new GroupAlias { guid = guid, alias = alias });
+
+                    }
+                }
+            }
+            connection.Close();
+            return groups;
+        }
+        catch (NpgsqlException e)
+        {
+            logger.Warn("Failed to get group aliases from SmartDispatchPlusV1 Database: " + e.Message);
+            return new List<GroupAlias>();
+        }
+    }
 
     async public IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date)
     {
@@ -276,18 +406,20 @@ public class SmartDispatchPlusV1Reader : IDataReader
         DataPump.State state = state_handler.LoadState();
 
 
-        NpgsqlConnection connection = new NpgsqlConnection(this._connectionString);
+        NpgsqlConnection connection = new NpgsqlConnection( this._connectionString);
         
         // Note: "lontitude" is the name of the longitude column.
         var query = "SELECT d.alias, g.id, g.deviceguid, g.deviceid, g.lontitude, g.latitude, g.speed," +
             " g.recvgpstime, g.happentime, g.activeflag, g.direction, g.description," +
             " g.gpstype, g.gpscontext, g.streetname, g.rssi" + 
-            " FROM dbo.gpsinfo g JOIN dbo.device d ON d.deviceid = g.deviceid" + 
+            ", dg.alias as group_alias" +
+            ", dg.guid as group_guid" +
+            " FROM dbo.gpsinfo g JOIN dbo.device d ON d.guid = g.deviceguid" +
+            " join dbo.devicegroup dg on dg.guid = d.groupguid" +
             " WHERE g.recvgpstime > @lower_date" +
             " and id > @latest_gps_index" +
             " ORDER BY g.recvgpstime asc" +
             " LIMIT 1000;";
-
 
 
         connection.Open();
@@ -322,7 +454,9 @@ public class SmartDispatchPlusV1Reader : IDataReader
                             activeflag = reader.GetInt32(reader.GetOrdinal("activeflag")),
 
                             recvgpstime = reader.GetDateTime(reader.GetOrdinal("recvgpstime")),
-                            happentime = reader.GetDateTime(reader.GetOrdinal("happentime"))
+                            happentime = reader.GetDateTime(reader.GetOrdinal("happentime")),
+                            devicegroup_guid = reader.GetString(reader.GetOrdinal("group_guid")),
+                            devicegroup_alias = reader.GetString(reader.GetOrdinal("group_alias"))
                         };
 
                         // Timestamps are naive in the database.
@@ -362,14 +496,54 @@ public class SmartOneDispatchReader : IDataReader
 {
 
     private string _connectionString;
-    private int _kas20_system_id;
-    private int counter = 0;
+    private string _database_schema;
+    private string _database_name;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
     public SmartOneDispatchReader(string database_server, string database_name, string database_user, string database_password, string database_schema)
     {
+        _database_name = database_name;
+        _database_schema = database_schema;
         _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;";
+        logger.Info($"Created SmartOneDispatchReader. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}");
     }
+
+    public TestResult TestConnection()
+    {
+
+        try
+        {
+            using NpgsqlConnection connection = new NpgsqlConnection(this._connectionString);
+            connection.Open();
+            using (NpgsqlCommand command = new NpgsqlCommand("SELECT schema_name from information_schema.schemata where schema_name = @schema and catalog_name = @catalog", connection))
+            {
+                command.Parameters.AddWithValue("@schema", this._database_schema);
+                command.Parameters.AddWithValue("@catalog", this._database_name);
+                var val = command.ExecuteScalar();
+                Console.WriteLine("Connection test successful. Value: " + val);
+
+                if (val == null)
+                {
+                    return new TestResult(false, "Schema not found. " + this._database_schema);
+                }
+                return new TestResult(true, "All good.");
+            }
+        }
+        catch (System.ArgumentException e)
+        {
+            return new TestResult(false, e.Message);
+        }
+        catch (System.Net.Sockets.SocketException se)
+        {
+            return new TestResult(false, se.Message);
+        }
+        catch (NpgsqlException e)
+        {
+            Console.WriteLine("Connection test failed. Exception: " + e.Message);
+            return new TestResult(false, e.Message);
+        }
+    }
+
 
 
 
@@ -476,11 +650,36 @@ public class SmartOneDispatchReader : IDataReader
     }
 }
 
+
+public class GroupedDataWriter : IDataWriter
+{
+    public readonly List<IDataWriter> writers;
+
+    public void AddWriter(IDataWriter writer)
+    {
+        writers.Add(writer);
+    }
+
+    public async Task<int> PostObservation(ISourceRecord record)
+    {
+        writers.ForEach(async writer =>
+                   await writer.PostObservation(record)
+                          );
+        return 0;
+    } 
+
+    public GroupedDataWriter()
+    {
+        writers = new List<IDataWriter>();
+    }
+
+}
 public class GundiV2DataWriter : IDataWriter
 {
     private readonly HttpClient _httpClient;
     private readonly string _destination;
     private readonly string _apikey;
+    private HashSet<string> matchingGroups;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
     public GundiV2DataWriter(string destination = "https://sensors.api.gundiservice.org", string apikey = "SomethingFancy")
@@ -489,11 +688,24 @@ public class GundiV2DataWriter : IDataWriter
         this._destination = destination;
         this._apikey = apikey;
         this._httpClient.DefaultRequestHeaders.Add("apikey", this._apikey);
+        this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.0");
+
+        this.matchingGroups = new HashSet<string>();
     }
 
+    public void AddMatchingGroup(string group)
+    {
+        matchingGroups.Add(group);
+    }
 
     public async Task<int> PostObservation(ISourceRecord record)
     {
+
+        if (!matchingGroups.IsNullOrEmpty() && !matchingGroups.Contains(record.group_identifier))
+        {
+            return 0;
+        }
+
         try
         {
             var observation = record.ToGundiV2Observation();

@@ -1,4 +1,5 @@
 ﻿using NLog;
+using service;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,38 +13,13 @@ namespace worker
     public class RadioServiceConfiguration
     {
 
-        public string? destination { get; set; } = "https://sensors.api.gundiservice.org";
-        public string? intervalMs { get; set; } = "5000";
-
-        [JsonIgnore]
-        public string? connectionString { 
-            // This is a convenience property that that builds a connection string from the other properties.
-            get {
-
-                  return $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
-            } 
-        }
-
-        public string? database_server { get; set; } = "localhost";
-
-        public string? database_name { get; set; }
-        public string? database_user { get; set; }
-        public string? database_password { get; set; }
-        public string? database_schema { get; set; }
-
-        public string? earthranger_provider_key { get; set; }
-        public string? earthranger_auth_token { get; set; }
-        public string? gundi_apikey { get; set; }
-        public string? gundi_apiversion { get; set; }
-        public string? reader_type { get; set; }
-
         // Define an enum for coffee types
         public enum ReaderType
         {
-            KAS20,
-            SmartDispatchPlus,
-            SmartOneDispatch,
-            TrbonetPlus
+            KAS20 = 0,
+            SmartDispatchPlus = 1,
+            SmartOneDispatch = 3,
+            TrbonetPlus = 4
         }
 
     }
@@ -93,16 +69,15 @@ namespace worker
                     logger.Debug("State file does not exist. Creating a new one.");
                     _value = new AppSettings()
                     {
-                        Logging = new Dictionary<string, object>() 
+                        Logging = new Dictionary<string, object>()
 
-                         { 
-                           ["LogLevel"] = new Dictionary<string, string>()
+                        {
+                            ["LogLevel"] = new Dictionary<string, string>()
                                 {
                                     {"Default", "Information"},
                                     {"Microsoft.Hosting.Lifetime", "Information" }
-                                } 
-                         },
-                        RadioServiceConfiguration = new ()
+                                }
+                        }
 
                         
                     }; // You can customize this to initialize the state.
@@ -152,7 +127,7 @@ namespace worker
     // Define your program state class
     public class AppSettings
     {
-        public RadioServiceConfiguration? RadioServiceConfiguration { get; set; }   
+        public RouteConfiguration? RouteConfiguration { get; set; } = new RouteConfiguration();
 
         public IDictionary<string, object>? Logging { get; set; }
     }

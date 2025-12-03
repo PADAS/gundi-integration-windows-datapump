@@ -2,6 +2,7 @@
   "profiles": {
     "service": {
       "commandName": "Project",
+      "workingDirectory": "C:\\GundiRadioService",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"
       },
