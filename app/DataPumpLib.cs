@@ -708,7 +708,7 @@ public class GundiV2DataWriter : IDataWriter
                     TimeSpan.FromMilliseconds(Jitterer.Next(0, 200)),
                 onRetry: (outcome, delay, retryAttempt, context) =>
                 {
-                    Console.WriteLine(
+                    logger.Warn(
                         $"Retry {retryAttempt} after {delay.TotalSeconds:n1}s due to {outcome.Result?.StatusCode}");
                 });
     }
@@ -720,7 +720,7 @@ public class GundiV2DataWriter : IDataWriter
         this._destination = destination;
         this._apikey = apikey;
         this._httpClient.DefaultRequestHeaders.Add("apikey", this._apikey);
-        this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.0");
+        this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.1");
 
         this.matchingGroups = new HashSet<string>();
 
@@ -757,7 +757,6 @@ public class GundiV2DataWriter : IDataWriter
                 return httpResponse;
             });
 
-            //var response = await _httpClient.PostAsJsonAsync<List<GundiV2Observation>>($"{this._destination}/v2/observations/", payload);
             var content = await response.Content.ReadAsStringAsync();
 
             response.EnsureSuccessStatusCode();
