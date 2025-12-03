@@ -734,7 +734,7 @@ public class GundiV2DataWriter : IDataWriter
     public async Task<int> PostObservation(ISourceRecord record)
     {
 
-        if (!matchingGroups.IsNullOrEmpty() && !matchingGroups.Contains(record.group_identifier))
+        if (matchingGroups.Count > 0 && !matchingGroups.Contains(record.group_identifier))
         {
             return 0;
         }
