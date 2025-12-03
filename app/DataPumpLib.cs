@@ -13,6 +13,14 @@ using System;
 using System.ComponentModel;
 using Microsoft.IdentityModel.Tokens;
 
+using Polly;
+using Polly.Extensions.Http;
+using System.Net;
+using System.Net.Http.Json;
+using System.Threading;
+
+
+
 public class KAS20DataReader : IDataReader
 {
 
@@ -681,16 +689,41 @@ public class GundiV2DataWriter : IDataWriter
     private readonly string _apikey;
     private HashSet<string> matchingGroups;
 
+    private readonly SemaphoreSlim _rateLimiter;
+
     private static Logger logger = LogManager.GetCurrentClassLogger();
-    public GundiV2DataWriter(string destination = "https://sensors.api.gundiservice.org", string apikey = "SomethingFancy")
+
+
+    private static readonly Random Jitterer = new Random();
+
+    private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+    {
+        return HttpPolicyExtensions
+            .HandleTransientHttpError() // 5xx, 408, and network failures
+            .OrResult(msg => msg.StatusCode == HttpStatusCode.TooManyRequests) // optional
+            .WaitAndRetryAsync(
+                retryCount: 5,
+                sleepDurationProvider: retryAttempt =>
+                    TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)) +
+                    TimeSpan.FromMilliseconds(Jitterer.Next(0, 200)),
+                onRetry: (outcome, delay, retryAttempt, context) =>
+                {
+                    Console.WriteLine(
+                        $"Retry {retryAttempt} after {delay.TotalSeconds:n1}s due to {outcome.Result?.StatusCode}");
+                });
+    }
+
+    public GundiV2DataWriter(string destination = "https://sensors.api.gundiservice.org", string apikey = "SomethingFancy", int maxConcurrency = 5)
     {
         this._httpClient = new HttpClient();
+        this._rateLimiter = new SemaphoreSlim(maxConcurrency); // Limit concurrent requests
         this._destination = destination;
         this._apikey = apikey;
         this._httpClient.DefaultRequestHeaders.Add("apikey", this._apikey);
         this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.0");
 
         this.matchingGroups = new HashSet<string>();
+
     }
 
     public void AddMatchingGroup(string group)
@@ -706,14 +739,25 @@ public class GundiV2DataWriter : IDataWriter
             return 0;
         }
 
+        var observation = record.ToGundiV2Observation();
+        List<GundiV2Observation> payload = new() { observation };
+
+        await _rateLimiter.WaitAsync();
+
         try
         {
-            var observation = record.ToGundiV2Observation();
-
-            List<GundiV2Observation> payload = new() { observation };
 
             logger.Info(JsonSerializer.Serialize<GundiV2Observation>(observation));
-            var response = await _httpClient.PostAsJsonAsync<List<GundiV2Observation>>($"{this._destination}/v2/observations/", payload);
+
+            var policy = GetRetryPolicy();
+
+            var response = await policy.ExecuteAsync(async() => 
+            {
+                var httpResponse = await _httpClient.PostAsJsonAsync<List<GundiV2Observation>>($"{this._destination}/v2/observations/", payload);
+                return httpResponse;
+            });
+
+            //var response = await _httpClient.PostAsJsonAsync<List<GundiV2Observation>>($"{this._destination}/v2/observations/", payload);
             var content = await response.Content.ReadAsStringAsync();
 
             response.EnsureSuccessStatusCode();
@@ -727,6 +771,10 @@ public class GundiV2DataWriter : IDataWriter
         catch (Exception e)
         {
             logger.Info("Exception: " + e.Message);
+        }
+        finally
+        {
+            _rateLimiter.Release();
         }
 
         return 0;
