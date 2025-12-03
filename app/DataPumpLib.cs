@@ -11,7 +11,6 @@ using System.Data.SqlTypes;
 using Npgsql;
 using System;
 using System.ComponentModel;
-using Microsoft.IdentityModel.Tokens;
 
 using Polly;
 using Polly.Extensions.Http;
@@ -689,7 +688,7 @@ public class GundiV2DataWriter : IDataWriter
     private readonly HttpClient _httpClient;
     private readonly string _destination;
     private readonly string _apikey;
-    private HashSet<string> matchingGroups;
+    private readonly HashSet<string> matchingGroups;
     private readonly IAsyncPolicy<HttpResponseMessage> _retryPolicy;
 
     private readonly SemaphoreSlim _rateLimiter;
@@ -774,7 +773,7 @@ public class GundiV2DataWriter : IDataWriter
                 return await _httpClient.PostAsJsonAsync($"{this._destination}/v2/observations/", payload, ct);
             }, linkedCts.Token).ConfigureAwait(false);
 
-            var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
             return 0;

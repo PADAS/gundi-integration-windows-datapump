@@ -7,7 +7,6 @@ using NLog;
 using DataPump;
 
 using System.Threading.Tasks;
-using worker;
 
 public class SupportedReader
 {
