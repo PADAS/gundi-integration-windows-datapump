@@ -29,7 +29,7 @@ namespace DataPump
                 {
                     logger.Debug("item: " + JsonSerializer.Serialize(item));
 
-                    await writer.PostObservation(item);
+                    await writer.PostObservation(item, cancellationToken);
 
                     lower_date = item.cursor_at > lower_date ? item.cursor_at : lower_date;
                 }

@@ -16,8 +16,8 @@ using Microsoft.IdentityModel.Tokens;
 using Polly;
 using Polly.Extensions.Http;
 using System.Net;
-using System.Net.Http.Json;
 using System.Threading;
+using System.Linq;
 
 
 
@@ -668,19 +668,21 @@ public class GroupedDataWriter : IDataWriter
         writers.Add(writer);
     }
 
-    public async Task<int> PostObservation(ISourceRecord record)
+    public async Task<int> PostObservation(ISourceRecord record, CancellationToken cancellation = default)
     {
-        writers.ForEach(async writer =>
-                   await writer.PostObservation(record)
-                          );
+        // propagate cancellation to all underlying writers and await them
+        var tasks = writers.Select(writer => writer.PostObservation(record, cancellation)).ToArray();
+
+        // Let OperationCanceledException bubble up so callers (background service) can observe shutdown.
+        await Task.WhenAll(tasks);
+
         return 0;
-    } 
+    }
 
     public GroupedDataWriter()
     {
         writers = new List<IDataWriter>();
     }
-
 }
 public class GundiV2DataWriter : IDataWriter
 {
@@ -688,15 +690,14 @@ public class GundiV2DataWriter : IDataWriter
     private readonly string _destination;
     private readonly string _apikey;
     private HashSet<string> matchingGroups;
+    private readonly IAsyncPolicy<HttpResponseMessage> _retryPolicy;
 
     private readonly SemaphoreSlim _rateLimiter;
+    private readonly TimeSpan _httpTimeout;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
 
-
-    private static readonly Random Jitterer = new Random();
-
-    private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+    private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(Random jitterer)
     {
         return HttpPolicyExtensions
             .HandleTransientHttpError() // 5xx, 408, and network failures
@@ -705,15 +706,23 @@ public class GundiV2DataWriter : IDataWriter
                 retryCount: 5,
                 sleepDurationProvider: retryAttempt =>
                     TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)) +
-                    TimeSpan.FromMilliseconds(Jitterer.Next(0, 200)),
+                    TimeSpan.FromMilliseconds(jitterer.Next(0, 200)),
                 onRetry: (outcome, delay, retryAttempt, context) =>
                 {
-                    logger.Warn(
-                        $"Retry {retryAttempt} after {delay.TotalSeconds:n1}s due to {outcome.Result?.StatusCode}");
+                    if (outcome.Exception != null)
+                    {
+                        logger.Warn($"Retry {retryAttempt} after {delay.TotalSeconds:n1}s due to exception: {outcome.Exception.Message}");
+                    }
+                    else
+                    {
+                        logger.Warn($"Retry {retryAttempt} after {delay.TotalSeconds:n1}s due to HTTP {(int)outcome.Result!.StatusCode}");
+                    }
                 });
     }
 
-    public GundiV2DataWriter(string destination = "https://sensors.api.gundiservice.org", string apikey = "SomethingFancy", int maxConcurrency = 5)
+    public GundiV2DataWriter(string destination = "https://sensors.api.gundiservice.org",
+        string apikey = "SomethingFancy", int maxConcurrency = 5,
+        TimeSpan? httpTimeout = null)
     {
         this._httpClient = new HttpClient();
         this._rateLimiter = new SemaphoreSlim(maxConcurrency); // Limit concurrent requests
@@ -721,8 +730,13 @@ public class GundiV2DataWriter : IDataWriter
         this._apikey = apikey;
         this._httpClient.DefaultRequestHeaders.Add("apikey", this._apikey);
         this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.1");
-
+        this._retryPolicy = GetRetryPolicy(new Random());
         this.matchingGroups = new HashSet<string>();
+
+        // configure timeout on the HttpClient and keep a copy locally
+        _httpTimeout = httpTimeout ?? TimeSpan.FromSeconds(30);
+        _httpClient.Timeout = _httpTimeout;
+
 
     }
 
@@ -731,37 +745,45 @@ public class GundiV2DataWriter : IDataWriter
         matchingGroups.Add(group);
     }
 
-    public async Task<int> PostObservation(ISourceRecord record)
+    public async Task<int> PostObservation(ISourceRecord record, CancellationToken cancellationToken = default)
     {
-
         if (matchingGroups.Count > 0 && !matchingGroups.Contains(record.group_identifier))
         {
             return 0;
         }
 
         var observation = record.ToGundiV2Observation();
-        List<GundiV2Observation> payload = new() { observation };
+        var payload = new List<GundiV2Observation> { observation };
 
-        await _rateLimiter.WaitAsync();
+        // honor cancellation while waiting for concurrency slot
+        await _rateLimiter.WaitAsync(cancellationToken);
 
         try
         {
 
             logger.Info(JsonSerializer.Serialize<GundiV2Observation>(observation));
 
-            var policy = GetRetryPolicy();
+            // create a linked CTS so we enforce the per-request timeout while still honoring the caller token
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            linkedCts.CancelAfter(_httpTimeout);
 
-            var response = await policy.ExecuteAsync(async() => 
+            // Polly supports passing the CancellationToken to ExecuteAsync
+            var response = await _retryPolicy.ExecuteAsync(async (ct) =>
             {
-                var httpResponse = await _httpClient.PostAsJsonAsync<List<GundiV2Observation>>($"{this._destination}/v2/observations/", payload);
-                return httpResponse;
-            });
+                // pass the cancellation token to the HTTP call
+                return await _httpClient.PostAsJsonAsync($"{this._destination}/v2/observations/", payload, ct);
+            }, linkedCts.Token).ConfigureAwait(false);
 
-            var content = await response.Content.ReadAsStringAsync();
-
+            var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
             return 0;
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation requested - log and rethrow so caller can observe it
+            logger.Info($"PostObservation cancelled for record at {record.cursor_at}");
+            throw;
         }
         catch (HttpRequestException e)
         {
@@ -797,23 +819,27 @@ public class EarthRangerDataWriter : IDataWriter
         this._httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", this._token);
     }
 
-
-    public async Task<int> PostObservation(ISourceRecord record)
+    public async Task<int> PostObservation(ISourceRecord record, CancellationToken cancellation = default)
     {
         try
         {
-
             var observation = record.ToEarthRangerObservation();
-            
+
             logger.Info(JsonSerializer.Serialize<EarthRangerObservation>(observation));
-            var response = await _httpClient.PostAsJsonAsync<EarthRangerObservation>($"{this._destination}/api/v1.0/sensors/dasradioagent/{this._provider_key}/status", observation);
+
+            // pass cancellation token to the HTTP call
+            var response = await _httpClient.PostAsJsonAsync($"{this._destination}/api/v1.0/sensors/dasradioagent/{this._provider_key}/status", observation, cancellation);
+
             var content = await response.Content.ReadAsStringAsync();
 
             response.EnsureSuccessStatusCode();
 
-            //StatusResponse? status_response = JsonSerializer.Deserialize<StatusResponse>(content);
-            //return status_response?.status ?? 0;
             return 0;
+        }
+        catch (OperationCanceledException)
+        {
+            logger.Info($"PostObservation cancelled for record at {record.cursor_at}");
+            throw;
         }
         catch (HttpRequestException e)
         {

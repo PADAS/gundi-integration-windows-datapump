@@ -40,4 +40,9 @@ public class GroupAlias
         }
         return guid == ((GroupAlias)obj).guid;
     }
+
+    public override int GetHashCode()
+    {
+        return $"{guid}{alias}".GetHashCode();
+    }
 }

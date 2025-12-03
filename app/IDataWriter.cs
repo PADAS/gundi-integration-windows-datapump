@@ -2,7 +2,7 @@
 
 public interface IDataWriter
 {
-    Task<int> PostObservation(ISourceRecord record);
+    Task<int> PostObservation(ISourceRecord record, CancellationToken cancellation = default);
 }
 
 public class GundiConnection
