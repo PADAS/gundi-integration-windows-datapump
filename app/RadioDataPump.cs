@@ -47,14 +47,14 @@ namespace DataPump
 
                         if (batch.Count >= _batchSize)
                         {
-                            await FlushBatch(batch, writer, ref lower_date, cancellationToken);
+                            lower_date = await FlushBatch(batch, writer, lower_date, cancellationToken);
                         }
                     }
 
                     // Flush remaining records after enumeration completes
                     if (batch.Count > 0)
                     {
-                        await FlushBatch(batch, writer, ref lower_date, cancellationToken);
+                        lower_date = await FlushBatch(batch, writer, lower_date, cancellationToken);
                     }
 
                     // Reset error counter on successful read cycle
@@ -86,8 +86,11 @@ namespace DataPump
             return 0;
         }
 
-        private async Task FlushBatch(List<ISourceRecord> batch, IDataWriter writer,
-            ref DateTime lower_date, CancellationToken cancellationToken)
+        /// <summary>
+        /// Flushes the batch to the writer and returns the updated cursor value.
+        /// </summary>
+        private async Task<DateTime> FlushBatch(List<ISourceRecord> batch, IDataWriter writer,
+            DateTime lower_date, CancellationToken cancellationToken)
         {
             try
             {
@@ -96,7 +99,7 @@ namespace DataPump
 
                 // Only advance cursor after successful batch post
                 var maxCursor = batch.Max(r => r.cursor_at);
-                lower_date = maxCursor > lower_date ? maxCursor : lower_date;
+                return maxCursor > lower_date ? maxCursor : lower_date;
             }
             catch (OperationCanceledException)
             {
@@ -117,7 +120,7 @@ namespace DataPump
                 logger.Warn($"Failed to post batch of {batch.Count} records: {ex.Message}");
                 // Advance cursor to skip this problematic batch
                 var maxCursor = batch.Max(r => r.cursor_at);
-                lower_date = maxCursor > lower_date ? maxCursor : lower_date;
+                return maxCursor > lower_date ? maxCursor : lower_date;
             }
             finally
             {
