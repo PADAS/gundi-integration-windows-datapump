@@ -29,6 +29,7 @@ public class RouteConfiguration
     public SupportedReader DatabaseType { get; set; }
     public string? DatabaseSchema { get; set; } = "";
     public string? intervalMs { get; set; } = "5000";
+    public int BatchSize { get; set; } = 25;
 
     public List<GundiConnection> gundiConnections { get; set; }
 
@@ -132,7 +133,9 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
                         }
                     );
                     data_writer = grouped_writer;
-                    var dataPump = new RadioDataPump(routeConfiguration.intervalMs == null ? 5000 : int.Parse(routeConfiguration.intervalMs));
+                    var dataPump = new RadioDataPump(
+                        routeConfiguration.intervalMs == null ? 5000 : int.Parse(routeConfiguration.intervalMs),
+                        routeConfiguration.BatchSize);
 
                     var val = await dataPump.Run(reader, data_writer, stoppingToken);
 

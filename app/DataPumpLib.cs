@@ -671,6 +671,13 @@ public class GroupedDataWriter : IDataWriter
         return 0;
     }
 
+    public async Task<int> PostObservations(IReadOnlyList<ISourceRecord> records, CancellationToken cancellation = default)
+    {
+        var tasks = writers.Select(writer => writer.PostObservations(records, cancellation)).ToArray();
+        await Task.WhenAll(tasks);
+        return 0;
+    }
+
     public GroupedDataWriter()
     {
         writers = new List<IDataWriter>();
@@ -819,6 +826,65 @@ public class GundiV2DataWriter : IDataWriter
         catch (Exception e)
         {
             logger.Warn($"Unexpected error posting observation: {e.Message}");
+        }
+        finally
+        {
+            _rateLimiter.Release();
+        }
+
+        return 0;
+    }
+
+    public async Task<int> PostObservations(IReadOnlyList<ISourceRecord> records, CancellationToken cancellationToken = default)
+    {
+        if (records.Count == 0) return 0;
+
+        // Filter records by matching groups
+        var matchingRecords = matchingGroups.Count > 0
+            ? records.Where(r => matchingGroups.Contains(r.group_identifier)).ToList()
+            : records.ToList();
+
+        if (matchingRecords.Count == 0) return 0;
+
+        // Convert all to observations
+        var payload = matchingRecords.Select(r => r.ToGundiV2Observation()).ToList();
+
+        await _rateLimiter.WaitAsync(cancellationToken);
+        try
+        {
+            logger.Info($"Posting batch of {payload.Count} observations");
+
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            linkedCts.CancelAfter(_httpTimeout);
+
+            var response = await _resiliencePolicy.ExecuteAsync(async (ct) =>
+            {
+                return await _httpClient.PostAsJsonAsync($"{_destination}/v2/observations/", payload, ct);
+            }, linkedCts.Token).ConfigureAwait(false);
+
+            await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            return 0;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.Warn($"PostObservations batch timed out. Will retry on next poll cycle.");
+        }
+        catch (OperationCanceledException)
+        {
+            logger.Info($"PostObservations batch cancelled");
+            throw;
+        }
+        catch (HttpRequestException e)
+        {
+            logger.Warn($"HTTP error posting batch: {e.Message}");
+            throw;
+        }
+        catch (Exception e)
+        {
+            logger.Warn($"Unexpected error posting batch: {e.Message}");
+            throw;
         }
         finally
         {

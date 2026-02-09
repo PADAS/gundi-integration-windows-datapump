@@ -165,25 +165,53 @@ namespace general_tests
         {
 
             var reader_mocker = new Mock<IDataReader>();
-            reader_mocker.SetupSequence(f => f.ReadNew(It.IsAny<DateTime>())).Returns(MockResponse1()).Returns(MockResponse2()).Returns(MockResponse2()); 
+            reader_mocker.SetupSequence(f => f.ReadNew(It.IsAny<DateTime>())).Returns(MockResponse1()).Returns(MockResponse2()).Returns(MockResponse2());
             IDataReader mock_reader = reader_mocker.Object;
 
             var writer_mocker = new Mock<IDataWriter>();
-            writer_mocker.Setup(f => f.PostObservation(It.IsAny<ISourceRecord>())).Returns(async () => 1);
+            writer_mocker.Setup(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.FromResult(0));
 
 
             IDataWriter mock_writer = writer_mocker.Object;
 
- 
-            RadioDataPump pump = new RadioDataPump(1000);
+
+            RadioDataPump pump = new RadioDataPump(1000, 25);
 
             CancellationTokenSource tokenSource= new CancellationTokenSource();
             tokenSource.CancelAfter(3000);
-            
+
 
             await pump.Run(mock_reader, mock_writer, tokenSource.Token);
 
-            writer_mocker.Verify(f => f.PostObservation(It.IsAny<ISourceRecord>()), Times.Exactly(3));
+            // With batch size 25 and 3 records, we expect a single batch flush
+            writer_mocker.Verify(f => f.PostObservations(It.Is<IReadOnlyList<ISourceRecord>>(list => list.Count == 3), It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task TestDataPumpBatching()
+        {
+            // Test that records are batched correctly when batch size is smaller than record count
+            var reader_mocker = new Mock<IDataReader>();
+            reader_mocker.SetupSequence(f => f.ReadNew(It.IsAny<DateTime>())).Returns(MockResponse1()).Returns(MockResponse2()).Returns(MockResponse2());
+            IDataReader mock_reader = reader_mocker.Object;
+
+            var writer_mocker = new Mock<IDataWriter>();
+            writer_mocker.Setup(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.FromResult(0));
+
+            IDataWriter mock_writer = writer_mocker.Object;
+
+            // Batch size of 2, with 3 records should result in 2 batch flushes
+            RadioDataPump pump = new RadioDataPump(1000, 2);
+
+            CancellationTokenSource tokenSource = new CancellationTokenSource();
+            tokenSource.CancelAfter(3000);
+
+            await pump.Run(mock_reader, mock_writer, tokenSource.Token);
+
+            // First batch of 2, then remaining 1
+            writer_mocker.Verify(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
         }
     }   
 }

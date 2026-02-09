@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using DataPumpModels;
 using NLog;
 using Polly.CircuitBreaker;
 
@@ -10,12 +11,14 @@ namespace DataPump
         private const int BaseRetryDelayMs = 5000;
         private static readonly TimeSpan CircuitBreakerPauseTime = TimeSpan.FromMinutes(1);
 
-        int _intervalMs = 5000;
+        private readonly int _intervalMs;
+        private readonly int _batchSize;
 
         private static Logger logger = LogManager.GetCurrentClassLogger();
-        public RadioDataPump(int intervalMs = 5000)
+        public RadioDataPump(int intervalMs = 5000, int batchSize = 25)
         {
             _intervalMs = intervalMs;
+            _batchSize = batchSize;
         }
 
         public async Task<int> Run(IDataReader reader, IDataWriter writer, CancellationToken cancellationToken)
@@ -28,6 +31,7 @@ namespace DataPump
         {
             var lower_date = DateTime.UtcNow.AddMinutes(-2880);
             int consecutiveDbErrors = 0;
+            var batch = new List<ISourceRecord>(_batchSize);
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -38,35 +42,19 @@ namespace DataPump
                         // Check for cancellation between records
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        try
-                        {
-                            logger.Debug("item: " + JsonSerializer.Serialize(item));
+                        logger.Debug("item: " + JsonSerializer.Serialize(item));
+                        batch.Add(item);
 
-                            await writer.PostObservation(item, cancellationToken);
+                        if (batch.Count >= _batchSize)
+                        {
+                            await FlushBatch(batch, writer, ref lower_date, cancellationToken);
+                        }
+                    }
 
-                            // Only advance cursor on successful post
-                            lower_date = item.cursor_at > lower_date ? item.cursor_at : lower_date;
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            // Service shutdown - propagate
-                            throw;
-                        }
-                        catch (BrokenCircuitException)
-                        {
-                            // Circuit breaker is open - API is unhealthy
-                            // Don't advance cursor, pause processing, and retry from this point
-                            logger.Warn($"Circuit breaker open - pausing processing for {CircuitBreakerPauseTime.TotalSeconds}s before retrying...");
-                            await Task.Delay(CircuitBreakerPauseTime, cancellationToken);
-                            break; // Exit foreach to retry from current lower_date
-                        }
-                        catch (Exception writeEx)
-                        {
-                            // Writer error for this specific record - log and continue with next record
-                            logger.Warn($"Failed to post observation for record at {item.cursor_at}: {writeEx.Message}");
-                            // Advance cursor to skip this problematic record
-                            lower_date = item.cursor_at > lower_date ? item.cursor_at : lower_date;
-                        }
+                    // Flush remaining records after enumeration completes
+                    if (batch.Count > 0)
+                    {
+                        await FlushBatch(batch, writer, ref lower_date, cancellationToken);
                     }
 
                     // Reset error counter on successful read cycle
@@ -96,6 +84,45 @@ namespace DataPump
                 }
             }
             return 0;
+        }
+
+        private async Task FlushBatch(List<ISourceRecord> batch, IDataWriter writer,
+            ref DateTime lower_date, CancellationToken cancellationToken)
+        {
+            try
+            {
+                logger.Debug($"Flushing batch of {batch.Count} records");
+                await writer.PostObservations(batch, cancellationToken);
+
+                // Only advance cursor after successful batch post
+                var maxCursor = batch.Max(r => r.cursor_at);
+                lower_date = maxCursor > lower_date ? maxCursor : lower_date;
+            }
+            catch (OperationCanceledException)
+            {
+                // Service shutdown - propagate
+                throw;
+            }
+            catch (BrokenCircuitException)
+            {
+                // Circuit breaker is open - API is unhealthy
+                // Don't advance cursor, pause processing, and retry from this point
+                logger.Warn($"Circuit breaker open - pausing processing for {CircuitBreakerPauseTime.TotalSeconds}s before retrying...");
+                await Task.Delay(CircuitBreakerPauseTime, cancellationToken);
+                throw; // Re-throw to break out of foreach
+            }
+            catch (Exception ex)
+            {
+                // Writer error for this batch - log and advance cursor to skip
+                logger.Warn($"Failed to post batch of {batch.Count} records: {ex.Message}");
+                // Advance cursor to skip this problematic batch
+                var maxCursor = batch.Max(r => r.cursor_at);
+                lower_date = maxCursor > lower_date ? maxCursor : lower_date;
+            }
+            finally
+            {
+                batch.Clear();
+            }
         }
 
         private static bool IsTransientDatabaseError(Exception ex)

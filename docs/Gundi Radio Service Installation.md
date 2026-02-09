@@ -25,9 +25,15 @@ In order to install the Gundi Radio Service, you'll need to meet these prerequis
   * TRBOnet Plus (distributed by Motorola)
   
 * Credentials for the database used by the radio dispatch software.
+
   * For KAS-20 and TRBOnet Plus, this is a SQL Server database
   * For Smart Dispatch Plus this is a PostgreSQL database
+  > [!TIP]
+  >
+  > See [Appendix A: Database Access](#Appendix A: Database Access) for help with gaining access to the database on your radio system.
+  
 * A Gundi API Key (get this from the Gundi team)
+
 * Administrator privileges on your Windows PC
 
 ### Installation
@@ -86,3 +92,24 @@ Configure the Service.
 | Database User | `postgres` or `KAS20Admin` | Database username |
 | Database Password | `some-secret` | The password used to connect to the datbase. |
 
+## Appendix A: Database Access
+
+The Gundi Radio Service depends on reading data from a database and you might have to make some changes in your system to allow access.
+
+### SQL Server
+
+If you're using Gundi Radio Service with either Kenwood KAS20 or TRBOnet, then you most-likely have a SQL Server database installed.
+
+Configurations vary, but you can find out more about your SQL Server instance by finding an running one of these tools:
+
+Microsoft SQL Server Management Studio
+
+SQL Server Configuration Manager
+
+> [!TIP]
+>
+> This article from Microsoft, [Change server authentication Mode](https://learn.microsoft.com/en-us/sql/database-engine/configure-windows/change-server-authentication-mode?view=sql-server-ver16&tabs=t-sql#b-change-authentication-to-mixed-mode-windows-and-sql), provides more information about the SQL Server authentication modes and how to switch them.
+
+#### Creating a read-only user
+
+If you are able to run 
