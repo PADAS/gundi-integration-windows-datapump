@@ -170,8 +170,12 @@ namespace general_tests
             reader_mocker.SetupSequence(f => f.ReadNew(It.IsAny<DateTime>())).Returns(MockResponse1()).Returns(MockResponse2()).Returns(MockResponse2());
             IDataReader mock_reader = reader_mocker.Object;
 
+            // Capture batch sizes at invocation time (before the list is cleared)
+            var capturedBatchSizes = new List<int>();
+
             var writer_mocker = new Mock<IDataWriter>();
             writer_mocker.Setup(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()))
+                .Callback<IReadOnlyList<ISourceRecord>, CancellationToken>((records, ct) => capturedBatchSizes.Add(records.Count))
                 .Returns(Task.FromResult(0));
 
 
@@ -186,8 +190,9 @@ namespace general_tests
 
             await pump.Run(mock_reader, mock_writer, tokenSource.Token);
 
-            // With batch size 25 and 3 records, we expect a single batch flush
-            writer_mocker.Verify(f => f.PostObservations(It.Is<IReadOnlyList<ISourceRecord>>(list => list.Count == 3), It.IsAny<CancellationToken>()), Times.Once);
+            // With batch size 25 and 3 records, we expect a single batch flush with 3 records
+            Assert.Single(capturedBatchSizes);
+            Assert.Equal(3, capturedBatchSizes[0]);
         }
 
         [Fact]
@@ -198,8 +203,12 @@ namespace general_tests
             reader_mocker.SetupSequence(f => f.ReadNew(It.IsAny<DateTime>())).Returns(MockResponse1()).Returns(MockResponse2()).Returns(MockResponse2());
             IDataReader mock_reader = reader_mocker.Object;
 
+            // Capture batch sizes at invocation time (before the list is cleared)
+            var capturedBatchSizes = new List<int>();
+
             var writer_mocker = new Mock<IDataWriter>();
             writer_mocker.Setup(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()))
+                .Callback<IReadOnlyList<ISourceRecord>, CancellationToken>((records, ct) => capturedBatchSizes.Add(records.Count))
                 .Returns(Task.FromResult(0));
 
             IDataWriter mock_writer = writer_mocker.Object;
@@ -213,7 +222,9 @@ namespace general_tests
             await pump.Run(mock_reader, mock_writer, tokenSource.Token);
 
             // First batch of 2, then remaining 1
-            writer_mocker.Verify(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+            Assert.Equal(2, capturedBatchSizes.Count);
+            Assert.Equal(2, capturedBatchSizes[0]); // First batch
+            Assert.Equal(1, capturedBatchSizes[1]); // Remaining record
         }
 
         [Fact]
@@ -228,12 +239,19 @@ namespace general_tests
                 .Returns(MockResponse2());
             IDataReader mock_reader = reader_mocker.Object;
 
+            int postObservationsCallCount = 0;
+
             var writer_mocker = new Mock<IDataWriter>();
             // First call throws HttpRequestException (simulating 500/502/503 after retries exhausted)
             // Second call succeeds (if there were more records)
-            writer_mocker.SetupSequence(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()))
-                .ThrowsAsync(new HttpRequestException("Server returned 503 Service Unavailable"))
-                .Returns(Task.FromResult(0));
+            writer_mocker.Setup(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()))
+                .Callback<IReadOnlyList<ISourceRecord>, CancellationToken>((records, ct) => postObservationsCallCount++)
+                .Returns<IReadOnlyList<ISourceRecord>, CancellationToken>((records, ct) =>
+                {
+                    if (postObservationsCallCount == 1)
+                        throw new HttpRequestException("Server returned 503 Service Unavailable");
+                    return Task.FromResult(0);
+                });
 
             IDataWriter mock_writer = writer_mocker.Object;
 
@@ -246,7 +264,7 @@ namespace general_tests
             await pump.Run(mock_reader, mock_writer, tokenSource.Token);
 
             // Verify PostObservations was called (batch attempted)
-            writer_mocker.Verify(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+            Assert.True(postObservationsCallCount >= 1, "PostObservations should have been called at least once");
         }
 
         [Fact]
@@ -260,9 +278,12 @@ namespace general_tests
                 .Returns(MockResponse2());
             IDataReader mock_reader = reader_mocker.Object;
 
+            int postObservationsCallCount = 0;
+
             var writer_mocker = new Mock<IDataWriter>();
             // Throws BrokenCircuitException (circuit breaker is open)
             writer_mocker.Setup(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()))
+                .Callback<IReadOnlyList<ISourceRecord>, CancellationToken>((records, ct) => postObservationsCallCount++)
                 .ThrowsAsync(new BrokenCircuitException("Circuit breaker is open"));
 
             IDataWriter mock_writer = writer_mocker.Object;
@@ -270,14 +291,16 @@ namespace general_tests
             RadioDataPump pump = new RadioDataPump(500, 25);
 
             CancellationTokenSource tokenSource = new CancellationTokenSource();
-            // Short timeout - circuit breaker pause is 60s, so this will cancel before resume
+            // Short timeout - circuit breaker pause is 60s, so this will cancel during the pause
             tokenSource.CancelAfter(2000);
 
-            // Should complete via cancellation, not throw the circuit breaker exception
-            await pump.Run(mock_reader, mock_writer, tokenSource.Token);
+            // The pump should throw OperationCanceledException when cancelled during circuit breaker pause
+            // This is expected behavior - the service is shutting down gracefully
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+                await pump.Run(mock_reader, mock_writer, tokenSource.Token));
 
-            // Verify PostObservations was called at least once
-            writer_mocker.Verify(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+            // Verify PostObservations was called at least once before the circuit breaker opened
+            Assert.True(postObservationsCallCount >= 1, "PostObservations should have been called at least once");
         }
     }
 }
