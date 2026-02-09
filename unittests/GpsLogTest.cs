@@ -4,6 +4,7 @@ using Moq;
 using AutoFixture;
 using System.Runtime.CompilerServices;
 using worker;
+using Polly.CircuitBreaker;
 
 namespace general_tests
 {
@@ -213,5 +214,69 @@ namespace general_tests
             // First batch of 2, then remaining 1
             writer_mocker.Verify(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
         }
-    }   
+
+        [Fact]
+        public async Task TestServerErrorSkipsBatch()
+        {
+            // Test that a server error (HttpRequestException) causes the batch to be skipped
+            // and cursor advances to prevent infinite retries on bad data
+            var reader_mocker = new Mock<IDataReader>();
+            reader_mocker.SetupSequence(f => f.ReadNew(It.IsAny<DateTime>()))
+                .Returns(MockResponse1())
+                .Returns(MockResponse2())
+                .Returns(MockResponse2());
+            IDataReader mock_reader = reader_mocker.Object;
+
+            var writer_mocker = new Mock<IDataWriter>();
+            // First call throws HttpRequestException (simulating 500/502/503 after retries exhausted)
+            // Second call succeeds (if there were more records)
+            writer_mocker.SetupSequence(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new HttpRequestException("Server returned 503 Service Unavailable"))
+                .Returns(Task.FromResult(0));
+
+            IDataWriter mock_writer = writer_mocker.Object;
+
+            RadioDataPump pump = new RadioDataPump(1000, 25);
+
+            CancellationTokenSource tokenSource = new CancellationTokenSource();
+            tokenSource.CancelAfter(3000);
+
+            // Should not throw - error is caught and batch is skipped
+            await pump.Run(mock_reader, mock_writer, tokenSource.Token);
+
+            // Verify PostObservations was called (batch attempted)
+            writer_mocker.Verify(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+        }
+
+        [Fact]
+        public async Task TestCircuitBreakerPausesProcessing()
+        {
+            // Test that BrokenCircuitException causes processing to pause
+            var reader_mocker = new Mock<IDataReader>();
+            reader_mocker.SetupSequence(f => f.ReadNew(It.IsAny<DateTime>()))
+                .Returns(MockResponse1())
+                .Returns(MockResponse2())
+                .Returns(MockResponse2());
+            IDataReader mock_reader = reader_mocker.Object;
+
+            var writer_mocker = new Mock<IDataWriter>();
+            // Throws BrokenCircuitException (circuit breaker is open)
+            writer_mocker.Setup(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new BrokenCircuitException("Circuit breaker is open"));
+
+            IDataWriter mock_writer = writer_mocker.Object;
+
+            RadioDataPump pump = new RadioDataPump(500, 25);
+
+            CancellationTokenSource tokenSource = new CancellationTokenSource();
+            // Short timeout - circuit breaker pause is 60s, so this will cancel before resume
+            tokenSource.CancelAfter(2000);
+
+            // Should complete via cancellation, not throw the circuit breaker exception
+            await pump.Run(mock_reader, mock_writer, tokenSource.Token);
+
+            // Verify PostObservations was called at least once
+            writer_mocker.Verify(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+        }
+    }
 }
