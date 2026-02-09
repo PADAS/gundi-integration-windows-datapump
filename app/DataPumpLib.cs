@@ -4,6 +4,7 @@ using DataPumpModels;
 using System.Configuration;
 using NLog;
 using Microsoft.Data.SqlClient;
+using System.Net.Http;
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
 using System.Data.SqlTypes;
@@ -22,17 +23,27 @@ using System.Linq;
 
 public class KAS20DataReader : IDataReader
 {
-
     private string _connectionString;
-    private int counter = 0;
-
+    private readonly DataPump.StateHandler _stateHandler;
+    private readonly DataPump.State _state;
+    private bool _disposed = false;
     private static Logger logger = LogManager.GetCurrentClassLogger();
-    public KAS20DataReader(string database_server, string database_name, string database_user, string database_password)
+
+    public KAS20DataReader(string database_server, string database_name, string database_user, string database_password, int connectionTimeoutSeconds = 30)
     {
-
-        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
+        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;Connect Timeout={connectionTimeoutSeconds};";
+        _stateHandler = new DataPump.StateHandler("state.json");
+        _state = _stateHandler.LoadState();
         logger.Info($"Created KAS20DataReader. host: {database_server}, db: {database_name}, user: {database_user}");
+    }
 
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _stateHandler?.Dispose();
+            _disposed = true;
+        }
     }
 
     public TestResult TestConnection()
@@ -87,110 +98,105 @@ public class KAS20DataReader : IDataReader
 
    async  public IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date)
     {
-        using DataPump.StateHandler state_handler = new DataPump.StateHandler("state.json");
-        DataPump.State state = state_handler.LoadState();
-
-
-        SqlConnection connection = new SqlConnection(this._connectionString);
         var query = "select top 1000 gps_index, system_id, date_time, latitude, longitude, e_w, n_s," +
             " speed, unit_id, global_id, name, created_date, updated_date" +
             " from GpsLog" +
             " where date_time > @lower_date" +
             " and gps_index > @latest_gps_index" +
             " order by date_time asc;";
-    
+
+        using SqlConnection connection = new SqlConnection(this._connectionString);
         connection.Open();
 
+        using SqlCommand command = new SqlCommand(query, connection);
+        command.Parameters.AddWithValue("@lower_date", lower_date);
+        command.Parameters.AddWithValue("@latest_gps_index", _state.latest_gps_index);
 
-        using (SqlCommand command = new SqlCommand(query, connection))
+        using SqlDataReader reader = command.ExecuteReader();
+        while (reader.Read())
         {
-            command.Parameters.AddWithValue("@lower_date", lower_date);
-            command.Parameters.AddWithValue("@latest_gps_index", state.latest_gps_index);
-
-            using (SqlDataReader reader = command.ExecuteReader())
+            KenwoodGpsLogRecord item = null;
+            try
             {
-                while (reader.Read())
-                {
-                    KenwoodGpsLogRecord item = null;
-                    try
-                    {
-                        int systemId = reader.GetInt32(reader.GetOrdinal("system_id"));
-                        DateTime dateTime = reader.GetDateTime(reader.GetOrdinal("date_time"));
-                        dateTime = DateTime.SpecifyKind(dateTime, DateTimeKind.Utc);
-                        string e_w = reader.GetString(reader.GetOrdinal("e_w"));
-                        string n_s = reader.GetString(reader.GetOrdinal("n_s"));
-                        string name = reader.GetString(reader.GetOrdinal("name"));
-                        long unitId = reader.GetInt64(reader.GetOrdinal("unit_id"));
-                        DateTime createdDate = reader.GetDateTime(reader.GetOrdinal("created_date"));
-                        DateTime updatedDate = reader.GetDateTime(reader.GetOrdinal("updated_date"));
-                        long gps_index = reader.GetInt64(reader.GetOrdinal("gps_index"));
+                int systemId = reader.GetInt32(reader.GetOrdinal("system_id"));
+                DateTime dateTime = reader.GetDateTime(reader.GetOrdinal("date_time"));
+                dateTime = DateTime.SpecifyKind(dateTime, DateTimeKind.Utc);
+                string e_w = reader.GetString(reader.GetOrdinal("e_w"));
+                string n_s = reader.GetString(reader.GetOrdinal("n_s"));
+                string name = reader.GetString(reader.GetOrdinal("name"));
+                long unitId = reader.GetInt64(reader.GetOrdinal("unit_id"));
+                DateTime createdDate = reader.GetDateTime(reader.GetOrdinal("created_date"));
+                DateTime updatedDate = reader.GetDateTime(reader.GetOrdinal("updated_date"));
+                long gps_index = reader.GetInt64(reader.GetOrdinal("gps_index"));
 
 
-                        double stored_latitude = reader.GetDouble(reader.GetOrdinal("latitude"));
-                        double stored_longitude = reader.GetDouble(reader.GetOrdinal("longitude"));
-                        decimal latitude = to_decimal_degrees(stored_latitude);
-                        decimal longitude = to_decimal_degrees(stored_longitude);
-                        latitude = n_s.Equals("S", StringComparison.OrdinalIgnoreCase) ? latitude * -1 : latitude;
-                        longitude = e_w.Equals("W", StringComparison.OrdinalIgnoreCase) ? longitude * -1 : longitude;
+                double stored_latitude = reader.GetDouble(reader.GetOrdinal("latitude"));
+                double stored_longitude = reader.GetDouble(reader.GetOrdinal("longitude"));
+                decimal latitude = to_decimal_degrees(stored_latitude);
+                decimal longitude = to_decimal_degrees(stored_longitude);
+                latitude = n_s.Equals("S", StringComparison.OrdinalIgnoreCase) ? latitude * -1 : latitude;
+                longitude = e_w.Equals("W", StringComparison.OrdinalIgnoreCase) ? longitude * -1 : longitude;
 
-                        item = new KenwoodGpsLogRecord();
+                item = new KenwoodGpsLogRecord();
 
-                        item.name = name;
-                        item.unit_id = unitId;
-                        item.e_w = e_w;
-                        item.n_s = n_s;
-                        item.created_at = createdDate;
-                        item.updated_at = updatedDate;
-                        item.recorded_at = dateTime;
-                        item.latitude = latitude;
-                        item.longitude = longitude;
-                        item.system_id = systemId;
+                item.name = name;
+                item.unit_id = unitId;
+                item.e_w = e_w;
+                item.n_s = n_s;
+                item.created_at = createdDate;
+                item.updated_at = updatedDate;
+                item.recorded_at = dateTime;
+                item.latitude = latitude;
+                item.longitude = longitude;
+                item.system_id = systemId;
 
-                        // Advance cursor in state.
-                        state.latest_gps_index = gps_index;
+                // Advance cursor in state.
+                _state.latest_gps_index = gps_index;
 
-                    }
-                    catch (SqlNullValueException e)
-                    {
-                        logger.Warn("Null value found in GpsLog record. exception: " + e.Message);
-                    }
-
-                    if (item != null)
-                    {
-                        yield return item;
-                    }
-
-
-                }
+            }
+            catch (SqlNullValueException e)
+            {
+                logger.Warn("Null value found in GpsLog record. exception: " + e.Message);
             }
 
-           
+            if (item != null)
+            {
+                yield return item;
+            }
         }
-
-        connection.Close();
-
     }
 }
 
 public class TrbonetPlusDataReader : IDataReader
 {
-
     private string _connectionString;
-    private int counter = 0;
-
+    private readonly DataPump.StateHandler _stateHandler;
+    private readonly DataPump.State _state;
+    private bool _disposed = false;
     private static Logger logger = LogManager.GetCurrentClassLogger();
-    public TrbonetPlusDataReader(string database_server, string database_name, string database_user, string database_password)
-    {
-        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;";
-        logger.Info($"Created TrbonetPlusDataReader. host: {database_server}, db: {database_name}, user: {database_user}");
 
+    public TrbonetPlusDataReader(string database_server, string database_name, string database_user, string database_password, int connectionTimeoutSeconds = 30)
+    {
+        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;Connect Timeout={connectionTimeoutSeconds};";
+        _stateHandler = new DataPump.StateHandler("state.json");
+        _state = _stateHandler.LoadState();
+        logger.Info($"Created TrbonetPlusDataReader. host: {database_server}, db: {database_name}, user: {database_user}");
+    }
+
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _stateHandler?.Dispose();
+            _disposed = true;
+        }
     }
 
     public TestResult TestConnection()
     {
        try
         {
-            SqlConnection connection = new SqlConnection(this._connectionString);
+            using SqlConnection connection = new SqlConnection(this._connectionString);
             var query = "SELECT TOP (1) device_id FROM [GpsInfo] order by id desc;";
             connection.Open();
 
@@ -202,7 +208,7 @@ public class TrbonetPlusDataReader : IDataReader
                     {
                         return new TestResult(true, "All good.");
                     }
-                }   
+                }
             }
         }
         catch (Exception e)
@@ -212,131 +218,125 @@ public class TrbonetPlusDataReader : IDataReader
         return new TestResult(false, "Something went wrong.");
     }
 
-
-
     async public IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date)
     {
-        using DataPump.StateHandler state_handler = new DataPump.StateHandler("state.json");
-        DataPump.State state = state_handler.LoadState();
-
-
-        SqlConnection connection = new SqlConnection(this._connectionString);
         var query = "SELECT TOP (1000) g.id " +
                     ", g.device_id " +
-	                  " ,d.name " +
-                      " ,g.date " +
-                      " ,g.dateUtc " +
-                      " ,g.active " +
-                      " ,g.longitude " +
-                      " ,g.latitude " +
-                      " ,g.altitude " +
-                      " ,g.radius " +
-                      " ,g.direction " +
-                      " ,g.speed " +
-                      " ,g.description " +
-                      " ,g.rssi " + 
-                      " ,g.reportId " +
-                      " ,g.gpsSource " +
-                      " FROM [GpsInfo] g " +
-                      " JOIN [Devices] d " +
-                      "     on g.device_id = d.id " + 
-                      " WHERE g.dateUtc > @lower_date" +
-                      " and g.id > @latest_gps_index" +
-                      " and g.dateUtc is not null " +
-                      " order by id asc; ";
+                    " ,d.name " +
+                    " ,g.date " +
+                    " ,g.dateUtc " +
+                    " ,g.active " +
+                    " ,g.longitude " +
+                    " ,g.latitude " +
+                    " ,g.altitude " +
+                    " ,g.radius " +
+                    " ,g.direction " +
+                    " ,g.speed " +
+                    " ,g.description " +
+                    " ,g.rssi " +
+                    " ,g.reportId " +
+                    " ,g.gpsSource " +
+                    " FROM [GpsInfo] g " +
+                    " JOIN [Devices] d " +
+                    "     on g.device_id = d.id " +
+                    " WHERE g.dateUtc > @lower_date" +
+                    " and g.id > @latest_gps_index" +
+                    " and g.dateUtc is not null " +
+                    " order by id asc; ";
 
+        using SqlConnection connection = new SqlConnection(this._connectionString);
         connection.Open();
 
+        using SqlCommand command = new SqlCommand(query, connection);
+        command.Parameters.AddWithValue("@lower_date", lower_date);
+        command.Parameters.AddWithValue("@latest_gps_index", _state.latest_gps_index);
 
-        using (SqlCommand command = new SqlCommand(query, connection))
+        using SqlDataReader reader = command.ExecuteReader();
+        while (reader.Read())
         {
-            command.Parameters.AddWithValue("@lower_date", lower_date);
-            command.Parameters.AddWithValue("@latest_gps_index", state.latest_gps_index);
-
-            using (SqlDataReader reader = command.ExecuteReader())
+            TrbonetPlusRecord item = null;
+            try
             {
-                while (reader.Read())
-                {
-                    TrbonetPlusRecord item = null;
-                    try
-                    {
-                        int id = reader.GetInt32(reader.GetOrdinal("id"));
-                        DateTime dateUtc = reader.GetDateTime(reader.GetOrdinal("dateUtc"));
-                        DateTime recorded_at = DateTime.SpecifyKind(dateUtc, DateTimeKind.Utc);
-                        string name = reader.GetString(reader.GetOrdinal("name"));
-                        int device_id = reader.GetInt32(reader.GetOrdinal("device_id"));
+                int id = reader.GetInt32(reader.GetOrdinal("id"));
+                DateTime dateUtc = reader.GetDateTime(reader.GetOrdinal("dateUtc"));
+                DateTime recorded_at = DateTime.SpecifyKind(dateUtc, DateTimeKind.Utc);
+                string name = reader.GetString(reader.GetOrdinal("name"));
+                int device_id = reader.GetInt32(reader.GetOrdinal("device_id"));
 
-                        double stored_latitude = reader.GetDouble(reader.GetOrdinal("latitude"));
-                        double stored_longitude = reader.GetDouble(reader.GetOrdinal("longitude"));
+                double stored_latitude = reader.GetDouble(reader.GetOrdinal("latitude"));
+                double stored_longitude = reader.GetDouble(reader.GetOrdinal("longitude"));
 
-                        decimal latitude = decimal.Round((decimal)stored_latitude, 5);
-                        decimal longitude = decimal.Round((decimal)stored_longitude, 5);
-                        
-                        double altitude = reader.GetDouble(reader.GetOrdinal("altitude"));
-                        double radius = reader.GetDouble(reader.GetOrdinal("radius"));
-                        int direction = reader.GetInt32(reader.GetOrdinal("direction"));
-                        double speed = reader.GetDouble(reader.GetOrdinal("speed"));
-                        double rssi = reader.GetDouble(reader.GetOrdinal("rssi"));
-                        string description = reader.GetString(reader.GetOrdinal("description"));
-                        int reportId = reader.GetInt32(reader.GetOrdinal("reportId"));
-                        int gpsSource = reader.GetByte(reader.GetOrdinal("gpsSource"));
-                        item = new TrbonetPlusRecord();
+                decimal latitude = decimal.Round((decimal)stored_latitude, 5);
+                decimal longitude = decimal.Round((decimal)stored_longitude, 5);
 
-                        item.name = name;
-                        item.device_id = device_id;
-                        item.recorded_at = recorded_at;
-                        item.latitude = latitude;
-                        item.longitude = longitude;
-                        item.gpsSource = gpsSource;
-                        item.reportId = reportId;
-                        item.altitude = altitude;
-                        item.speed = speed;
-                        item.radius = radius;
-                        item.direction = direction;
+                double altitude = reader.GetDouble(reader.GetOrdinal("altitude"));
+                double radius = reader.GetDouble(reader.GetOrdinal("radius"));
+                int direction = reader.GetInt32(reader.GetOrdinal("direction"));
+                double speed = reader.GetDouble(reader.GetOrdinal("speed"));
+                double rssi = reader.GetDouble(reader.GetOrdinal("rssi"));
+                string description = reader.GetString(reader.GetOrdinal("description"));
+                int reportId = reader.GetInt32(reader.GetOrdinal("reportId"));
+                int gpsSource = reader.GetByte(reader.GetOrdinal("gpsSource"));
+                item = new TrbonetPlusRecord();
 
-                        // Advance cursor in state.
-                        state.latest_gps_index = (long)id;
+                item.name = name;
+                item.device_id = device_id;
+                item.recorded_at = recorded_at;
+                item.latitude = latitude;
+                item.longitude = longitude;
+                item.gpsSource = gpsSource;
+                item.reportId = reportId;
+                item.altitude = altitude;
+                item.speed = speed;
+                item.radius = radius;
+                item.direction = direction;
 
-                    }
-                    catch (SqlNullValueException e)
-                    {
-                        logger.Warn("Null value found in GpsLog record. exception: " + e.Message);
-                    }
+                // Advance cursor in state.
+                _state.latest_gps_index = (long)id;
 
-                    if (item != null)
-                    {
-                        yield return item;
-                    }
-
-
-                }
+            }
+            catch (SqlNullValueException e)
+            {
+                logger.Warn("Null value found in GpsLog record. exception: " + e.Message);
             }
 
-
+            if (item != null)
+            {
+                yield return item;
+            }
         }
-
-        connection.Close();
-
     }
 }
 
 
 public class SmartDispatchPlusV1Reader : IDataReader
 {
-
     private string _connectionString;
-
     private string _database_schema;
     private string _database_name;
+    private readonly DataPump.StateHandler _stateHandler;
+    private readonly DataPump.State _state;
+    private bool _disposed = false;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
-    public SmartDispatchPlusV1Reader(string database_server, string database_name, string database_user, string database_password, string database_schema)
+
+    public SmartDispatchPlusV1Reader(string database_server, string database_name, string database_user, string database_password, string database_schema, int connectionTimeoutSeconds = 30)
     {
         _database_schema = database_schema;
         _database_name = database_name;
+        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;Timeout={connectionTimeoutSeconds};";
+        _stateHandler = new DataPump.StateHandler("state.json");
+        _state = _stateHandler.LoadState();
+        logger.Info($"Created {GetType().Name}. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}");
+    }
 
-        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;";    
-        logger.Info($"Created {GetType().Name}. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}"); 
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _stateHandler?.Dispose();
+            _disposed = true;
+        }
     }
 
 
@@ -409,16 +409,10 @@ public class SmartDispatchPlusV1Reader : IDataReader
 
     async public IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date)
     {
-        using DataPump.StateHandler state_handler = new DataPump.StateHandler("state.json");
-        DataPump.State state = state_handler.LoadState();
-
-
-        NpgsqlConnection connection = new NpgsqlConnection( this._connectionString);
-        
         // Note: "lontitude" is the name of the longitude column.
         var query = "SELECT d.alias, g.id, g.deviceguid, g.deviceid, g.lontitude, g.latitude, g.speed," +
             " g.recvgpstime, g.happentime, g.activeflag, g.direction, g.description," +
-            " g.gpstype, g.gpscontext, g.streetname, g.rssi" + 
+            " g.gpstype, g.gpscontext, g.streetname, g.rssi" +
             ", dg.alias as group_alias" +
             ", dg.guid as group_guid" +
             " FROM dbo.gpsinfo g JOIN dbo.device d ON d.guid = g.deviceguid" +
@@ -428,91 +422,93 @@ public class SmartDispatchPlusV1Reader : IDataReader
             " ORDER BY g.recvgpstime asc" +
             " LIMIT 1000;";
 
-
+        using NpgsqlConnection connection = new NpgsqlConnection(this._connectionString);
         connection.Open();
 
+        using NpgsqlCommand command = new NpgsqlCommand(query, connection);
+        command.Parameters.AddWithValue("@lower_date", DateTime.SpecifyKind(lower_date, DateTimeKind.Unspecified));
+        command.Parameters.AddWithValue("@latest_gps_index", _state.latest_gps_index);
 
-        using (NpgsqlCommand command = new NpgsqlCommand(query, connection))
+        using NpgsqlDataReader reader = command.ExecuteReader();
+        while (reader.Read())
         {
-            command.Parameters.AddWithValue("@lower_date", DateTime.SpecifyKind(lower_date, DateTimeKind.Unspecified));
-            command.Parameters.AddWithValue("@latest_gps_index", state.latest_gps_index);
-
-            using (NpgsqlDataReader reader = command.ExecuteReader())
+            SmartDispatchPlusV1Record item = null;
+            try
             {
-                while (reader.Read())
+
+                item = new SmartDispatchPlusV1Record
                 {
-                    SmartDispatchPlusV1Record item = null;
-                    try
-                    {
-
-                        item = new SmartDispatchPlusV1Record
-                        {
-                            latitude = reader.GetDouble(reader.GetOrdinal("latitude")),
-                            longitude = reader.GetDouble(reader.GetOrdinal("lontitude")),
+                    latitude = reader.GetDouble(reader.GetOrdinal("latitude")),
+                    longitude = reader.GetDouble(reader.GetOrdinal("lontitude")),
 
 
-                            id = reader.GetInt64(reader.GetOrdinal("id")),
-                            device_alias = reader.GetString(reader.GetOrdinal("alias")),
-                            deviceid = reader.GetInt32(reader.GetOrdinal("deviceid")),
-                            deviceguid = reader.GetString(reader.GetOrdinal("deviceguid")),
-                            description = reader.GetString(reader.GetOrdinal("description")),
-                            direction = reader.GetDouble(reader.GetOrdinal("direction")),
-                            rssi = reader.GetDouble(reader.GetOrdinal("rssi")),
-                            activeflag = reader.GetInt32(reader.GetOrdinal("activeflag")),
+                    id = reader.GetInt64(reader.GetOrdinal("id")),
+                    device_alias = reader.GetString(reader.GetOrdinal("alias")),
+                    deviceid = reader.GetInt32(reader.GetOrdinal("deviceid")),
+                    deviceguid = reader.GetString(reader.GetOrdinal("deviceguid")),
+                    description = reader.GetString(reader.GetOrdinal("description")),
+                    direction = reader.GetDouble(reader.GetOrdinal("direction")),
+                    rssi = reader.GetDouble(reader.GetOrdinal("rssi")),
+                    activeflag = reader.GetInt32(reader.GetOrdinal("activeflag")),
 
-                            recvgpstime = reader.GetDateTime(reader.GetOrdinal("recvgpstime")),
-                            happentime = reader.GetDateTime(reader.GetOrdinal("happentime")),
-                            devicegroup_guid = reader.GetString(reader.GetOrdinal("group_guid")),
-                            devicegroup_alias = reader.GetString(reader.GetOrdinal("group_alias"))
-                        };
+                    recvgpstime = reader.GetDateTime(reader.GetOrdinal("recvgpstime")),
+                    happentime = reader.GetDateTime(reader.GetOrdinal("happentime")),
+                    devicegroup_guid = reader.GetString(reader.GetOrdinal("group_guid")),
+                    devicegroup_alias = reader.GetString(reader.GetOrdinal("group_alias"))
+                };
 
-                        // Timestamps are naive in the database.
-                        item.recvgpstime = DateTime.SpecifyKind(item.recvgpstime, DateTimeKind.Local);
-                        item.happentime = DateTime.SpecifyKind(item.happentime, DateTimeKind.Local);
-
-
-                        // Advance cursor in state.
-                        state.latest_gps_index = item.id;
+                // Timestamps are naive in the database.
+                item.recvgpstime = DateTime.SpecifyKind(item.recvgpstime, DateTimeKind.Local);
+                item.happentime = DateTime.SpecifyKind(item.happentime, DateTimeKind.Local);
 
 
-                    }
-                    catch (NpgsqlException e)
-                    {
-                        logger.Warn("Failed parsing a result from querying SmartDispatchPlusV1 Database: " + e.Message);
-                    }
-                    
-
-                    if (item != null)
-                    {
-                        yield return item;
-                    }
+                // Advance cursor in state.
+                _state.latest_gps_index = item.id;
 
 
-                }
+            }
+            catch (NpgsqlException e)
+            {
+                logger.Warn("Failed parsing a result from querying SmartDispatchPlusV1 Database: " + e.Message);
             }
 
 
+            if (item != null)
+            {
+                yield return item;
+            }
         }
-
-        connection.Close();
-
     }
 }
 
 public class SmartOneDispatchReader : IDataReader
 {
-
     private string _connectionString;
     private string _database_schema;
     private string _database_name;
+    private readonly DataPump.StateHandler _stateHandler;
+    private readonly DataPump.State _state;
+    private bool _disposed = false;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
-    public SmartOneDispatchReader(string database_server, string database_name, string database_user, string database_password, string database_schema)
+
+    public SmartOneDispatchReader(string database_server, string database_name, string database_user, string database_password, string database_schema, int connectionTimeoutSeconds = 30)
     {
         _database_name = database_name;
         _database_schema = database_schema;
-        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;";
+        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;Timeout={connectionTimeoutSeconds};";
+        _stateHandler = new DataPump.StateHandler("state.json");
+        _state = _stateHandler.LoadState();
         logger.Info($"Created SmartOneDispatchReader. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}");
+    }
+
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _stateHandler?.Dispose();
+            _disposed = true;
+        }
     }
 
     public TestResult TestConnection()
@@ -556,104 +552,100 @@ public class SmartOneDispatchReader : IDataReader
 
     async public IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date)
     {
-        using DataPump.StateHandler state_handler = new DataPump.StateHandler("state.json");
-        DataPump.State state = state_handler.LoadState();
+        // Use stored cursor timestamp if available and newer than lower_date
+        // This ensures we don't reprocess records on service restart
+        DateTime effectiveLowerDate = lower_date;
+        if (_state.latest_gps_index > 0)
+        {
+            DateTime storedDate = new DateTime(_state.latest_gps_index, DateTimeKind.Local);
+            if (storedDate > lower_date)
+            {
+                effectiveLowerDate = storedDate;
+            }
+        }
 
-
-        NpgsqlConnection connection = new NpgsqlConnection(this._connectionString);
-
-        // Note: "lontitude" is the name of the longitude column.
         var query = @"SELECT t1.device_alias, t1.car_make, t1.car_license_plate, t1.device_number,
                              t0.guid, t0.puc_id, t0.system_id, t0.device_id, t0.device_alias, t0.number_type,
                              t0.device_type, t0.staff_code, t0.gps_datetime, t0.gps_av, t0.long_we, t0.longitude,
                              t0.lat_ns, t0.latitude, t0.speed, t0.direction,
-                             t0.state, t0.receive_datetime, t0.tsc_id, t0.channel_id, t0.rssi_up, 
+                             t0.state, t0.receive_datetime, t0.tsc_id, t0.channel_id, t0.rssi_up,
                              t0.rssi_down, t0.power_mode, t0.electricity
                         FROM dbo.gps_location_data_base t0
-                            join dbo.device_info t1 on t0.device_id = t1.device_id 
+                            join dbo.device_info t1 on t0.device_id = t1.device_id
                                  and t0.puc_id = t1.puc_id
-		                         and t0.system_id = t1.system_id
+                                 and t0.system_id = t1.system_id
                        WHERE t0.receive_datetime > @lower_date
                        ORDER BY t0.receive_datetime asc
                        LIMIT 1000;";
 
-
-
+        using NpgsqlConnection connection = new NpgsqlConnection(this._connectionString);
         connection.Open();
 
+        using NpgsqlCommand command = new NpgsqlCommand(query, connection);
+        command.Parameters.AddWithValue("@lower_date", DateTime.SpecifyKind(effectiveLowerDate, DateTimeKind.Unspecified));
 
-        using (NpgsqlCommand command = new NpgsqlCommand(query, connection))
+        using NpgsqlDataReader reader = command.ExecuteReader();
+        while (reader.Read())
         {
-            command.Parameters.AddWithValue("@lower_date", DateTime.SpecifyKind(lower_date, DateTimeKind.Unspecified));
-
-            using (NpgsqlDataReader reader = command.ExecuteReader())
+            SmartOneDispatchRecord item = null;
+            try
             {
-                while (reader.Read())
+
+                item = new SmartOneDispatchRecord
                 {
-                    SmartOneDispatchRecord item = null;
-                    try
-                    {
-
-                        item = new SmartOneDispatchRecord
-                        {
-                            latitude = reader.GetDouble(reader.GetOrdinal("latitude")),
-                            longitude = reader.GetDouble(reader.GetOrdinal("longitude")),
-                            device_id = reader.GetString(reader.GetOrdinal("device_id")),
-                            device_alias = reader.GetString(reader.GetOrdinal("device_alias")),
-                            car_make = reader.GetString(reader.GetOrdinal("car_make")),
-                            car_license_plate = reader.GetString(reader.GetOrdinal("car_license_plate")),
-                            device_number = reader.GetString(reader.GetOrdinal("device_number")),
-                            guid = reader.GetString(reader.GetOrdinal("guid")),
-                            puc_id = reader.GetString(reader.GetOrdinal("puc_id")),
-                            system_id = reader.GetString(reader.GetOrdinal("system_id")),
-                            number_type = reader.GetInt32(reader.GetOrdinal("number_type")),
-                            device_type = reader.GetInt32(reader.GetOrdinal("device_type")),
+                    latitude = reader.GetDouble(reader.GetOrdinal("latitude")),
+                    longitude = reader.GetDouble(reader.GetOrdinal("longitude")),
+                    device_id = reader.GetString(reader.GetOrdinal("device_id")),
+                    device_alias = reader.GetString(reader.GetOrdinal("device_alias")),
+                    car_make = reader.GetString(reader.GetOrdinal("car_make")),
+                    car_license_plate = reader.GetString(reader.GetOrdinal("car_license_plate")),
+                    device_number = reader.GetString(reader.GetOrdinal("device_number")),
+                    guid = reader.GetString(reader.GetOrdinal("guid")),
+                    puc_id = reader.GetString(reader.GetOrdinal("puc_id")),
+                    system_id = reader.GetString(reader.GetOrdinal("system_id")),
+                    number_type = reader.GetInt32(reader.GetOrdinal("number_type")),
+                    device_type = reader.GetInt32(reader.GetOrdinal("device_type")),
 
 
-                            staff_code = reader.GetString(reader.GetOrdinal("staff_code")),
-                            gps_datetime = reader.GetDateTime(reader.GetOrdinal("gps_datetime")),
-                            gps_av = reader.GetString(reader.GetOrdinal("gps_av")),
-                            long_we = reader.GetString(reader.GetOrdinal("long_we")),
-                            lat_ns = reader.GetString(reader.GetOrdinal("lat_ns")),
-                            speed = reader.GetDouble(reader.GetOrdinal("speed")),
-                            direction = reader.GetDouble(reader.GetOrdinal("direction")),
-                            state = reader.GetString(reader.GetOrdinal("state")),
-                            receive_datetime = reader.GetDateTime(reader.GetOrdinal("receive_datetime")),
-                            tsc_id = reader.GetInt32(reader.GetOrdinal("tsc_id")),
-                            channel_id = reader.GetInt32(reader.GetOrdinal("channel_id")),
-                            rssi_up = reader.GetInt32(reader.GetOrdinal("rssi_up")),
-                            rssi_down = reader.GetInt32(reader.GetOrdinal("rssi_down")),
-                            power_mode = reader.GetInt32(reader.GetOrdinal("power_mode")),
-                            electricity = reader.GetInt32(reader.GetOrdinal("electricity"))
-                        };
+                    staff_code = reader.GetString(reader.GetOrdinal("staff_code")),
+                    gps_datetime = reader.GetDateTime(reader.GetOrdinal("gps_datetime")),
+                    gps_av = reader.GetString(reader.GetOrdinal("gps_av")),
+                    long_we = reader.GetString(reader.GetOrdinal("long_we")),
+                    lat_ns = reader.GetString(reader.GetOrdinal("lat_ns")),
+                    speed = reader.GetDouble(reader.GetOrdinal("speed")),
+                    direction = reader.GetDouble(reader.GetOrdinal("direction")),
+                    state = reader.GetString(reader.GetOrdinal("state")),
+                    receive_datetime = reader.GetDateTime(reader.GetOrdinal("receive_datetime")),
+                    tsc_id = reader.GetInt32(reader.GetOrdinal("tsc_id")),
+                    channel_id = reader.GetInt32(reader.GetOrdinal("channel_id")),
+                    rssi_up = reader.GetInt32(reader.GetOrdinal("rssi_up")),
+                    rssi_down = reader.GetInt32(reader.GetOrdinal("rssi_down")),
+                    power_mode = reader.GetInt32(reader.GetOrdinal("power_mode")),
+                    electricity = reader.GetInt32(reader.GetOrdinal("electricity"))
+                };
 
-                        item.latitude = item.lat_ns.Equals("S", StringComparison.OrdinalIgnoreCase) ? Math.Abs(item.latitude) * -1 : item.latitude;
-                        item.longitude = item.long_we.Equals("W", StringComparison.OrdinalIgnoreCase) ? Math.Abs(item.longitude) * -1 : item.longitude;
-                        // Timestamps are naive in the database.
-                        item.receive_datetime = DateTime.SpecifyKind(item.receive_datetime, DateTimeKind.Local);
-                        item.gps_datetime = DateTime.SpecifyKind(item.gps_datetime, DateTimeKind.Local);
+                item.latitude = item.lat_ns.Equals("S", StringComparison.OrdinalIgnoreCase) ? Math.Abs(item.latitude) * -1 : item.latitude;
+                item.longitude = item.long_we.Equals("W", StringComparison.OrdinalIgnoreCase) ? Math.Abs(item.longitude) * -1 : item.longitude;
+                // Timestamps are naive in the database.
+                item.receive_datetime = DateTime.SpecifyKind(item.receive_datetime, DateTimeKind.Local);
+                item.gps_datetime = DateTime.SpecifyKind(item.gps_datetime, DateTimeKind.Local);
 
-                    }
-                    catch (NpgsqlException e)
-                    {
-                        logger.Warn("Failed parsing a result from querying SmartDispatchPlusV1 Database: " + e.Message);
-                    }
+                // Advance cursor in state using receive_datetime ticks
+                // (SmartOneDispatch table doesn't have a numeric ID column)
+                _state.latest_gps_index = item.receive_datetime.Ticks;
 
-
-                    if (item != null)
-                    {
-                        yield return item;
-                    }
-
-
-                }
+            }
+            catch (NpgsqlException e)
+            {
+                logger.Warn("Failed parsing a result from querying SmartOneDispatch Database: " + e.Message);
             }
 
 
+            if (item != null)
+            {
+                yield return item;
+            }
         }
-
-        connection.Close();
-
     }
 }
 
@@ -685,6 +677,14 @@ public class GroupedDataWriter : IDataWriter
 }
 public class GundiV2DataWriter : IDataWriter
 {
+    // Shared handler for all GundiV2DataWriter instances - handles connection pooling and DNS refresh
+    private static readonly SocketsHttpHandler SharedHandler = new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(2), // Recreate connections to pick up DNS changes
+        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1),
+        MaxConnectionsPerServer = 10
+    };
+
     private readonly HttpClient _httpClient;
     private readonly string _destination;
     private readonly string _apikey;
@@ -723,7 +723,8 @@ public class GundiV2DataWriter : IDataWriter
         string apikey = "SomethingFancy", int maxConcurrency = 5,
         TimeSpan? httpTimeout = null)
     {
-        this._httpClient = new HttpClient();
+        // Use shared handler to avoid socket exhaustion and handle DNS changes
+        this._httpClient = new HttpClient(SharedHandler, disposeHandler: false);
         this._rateLimiter = new SemaphoreSlim(maxConcurrency); // Limit concurrent requests
         this._destination = destination;
         this._apikey = apikey;
@@ -734,7 +735,6 @@ public class GundiV2DataWriter : IDataWriter
 
         // configure timeout on the HttpClient and keep a copy locally
         _httpTimeout = httpTimeout ?? TimeSpan.FromSeconds(30);
-
     }
 
     public void AddMatchingGroup(string group)
@@ -800,35 +800,86 @@ public class GundiV2DataWriter : IDataWriter
 }
 public class EarthRangerDataWriter : IDataWriter
 {
+    // Shared handler for all EarthRangerDataWriter instances - handles connection pooling and DNS refresh
+    private static readonly SocketsHttpHandler SharedHandler = new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(2), // Recreate connections to pick up DNS changes
+        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1),
+        MaxConnectionsPerServer = 10
+    };
+
     private readonly HttpClient _httpClient;
     private readonly string _destination;
     private readonly string _token;
     private readonly string _provider_key;
+    private readonly IAsyncPolicy<HttpResponseMessage> _retryPolicy;
+    private readonly SemaphoreSlim _rateLimiter;
+    private readonly TimeSpan _httpTimeout;
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
-    public EarthRangerDataWriter(string destination = "https://cdip-er.pamdas.org", string token = "SomethingFancy", string provider_key = "kenwood-radios")
+
+    private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(Random jitterer)
     {
-        this._httpClient = new HttpClient();
+        return HttpPolicyExtensions
+            .HandleTransientHttpError() // 5xx, 408, and network failures
+            .OrResult(msg => msg.StatusCode == HttpStatusCode.TooManyRequests)
+            .WaitAndRetryAsync(
+                retryCount: 5,
+                sleepDurationProvider: retryAttempt =>
+                    TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)) +
+                    TimeSpan.FromMilliseconds(jitterer.Next(0, 200)),
+                onRetry: (outcome, delay, retryAttempt, context) =>
+                {
+                    if (outcome.Exception != null)
+                    {
+                        logger.Warn($"EarthRanger retry {retryAttempt} after {delay.TotalSeconds:n1}s due to exception: {outcome.Exception.Message}");
+                    }
+                    else
+                    {
+                        logger.Warn($"EarthRanger retry {retryAttempt} after {delay.TotalSeconds:n1}s due to HTTP {(int)outcome.Result!.StatusCode}");
+                    }
+                });
+    }
+
+    public EarthRangerDataWriter(string destination = "https://cdip-er.pamdas.org", string token = "SomethingFancy",
+        string provider_key = "kenwood-radios", int maxConcurrency = 5, TimeSpan? httpTimeout = null)
+    {
+        // Use shared handler to avoid socket exhaustion and handle DNS changes
+        this._httpClient = new HttpClient(SharedHandler, disposeHandler: false);
         this._destination = destination;
         this._token = token;
         this._provider_key = provider_key;
+        this._rateLimiter = new SemaphoreSlim(maxConcurrency);
+        this._httpTimeout = httpTimeout ?? TimeSpan.FromSeconds(30);
+        this._retryPolicy = GetRetryPolicy(Random.Shared);
 
         this._httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", this._token);
+        this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.1");
     }
 
     public async Task<int> PostObservation(ISourceRecord record, CancellationToken cancellation = default)
     {
+        var observation = record.ToEarthRangerObservation();
+
+        // honor cancellation while waiting for concurrency slot
+        await _rateLimiter.WaitAsync(cancellation);
+
         try
         {
-            var observation = record.ToEarthRangerObservation();
-
             logger.Info(JsonSerializer.Serialize<EarthRangerObservation>(observation));
 
-            // pass cancellation token to the HTTP call
-            var response = await _httpClient.PostAsJsonAsync($"{this._destination}/api/v1.0/sensors/dasradioagent/{this._provider_key}/status", observation, cancellation);
+            // create a linked CTS so we enforce the per-request timeout while still honoring the caller token
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+            linkedCts.CancelAfter(_httpTimeout);
 
-            var content = await response.Content.ReadAsStringAsync();
+            var response = await _retryPolicy.ExecuteAsync(async (ct) =>
+            {
+                return await _httpClient.PostAsJsonAsync(
+                    $"{this._destination}/api/v1.0/sensors/dasradioagent/{this._provider_key}/status",
+                    observation, ct);
+            }, linkedCts.Token).ConfigureAwait(false);
 
+            await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
             return 0;
@@ -845,6 +896,10 @@ public class EarthRangerDataWriter : IDataWriter
         catch (Exception e)
         {
             logger.Info("Exception: " + e.Message);
+        }
+        finally
+        {
+            _rateLimiter.Release();
         }
 
         return 0;

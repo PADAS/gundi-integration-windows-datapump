@@ -11,7 +11,7 @@ public class TestResult
     public string Message { get; set; }
 }
 
-public interface IDataReader
+public interface IDataReader : IDisposable
 {
     IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date);
 

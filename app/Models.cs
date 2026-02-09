@@ -142,35 +142,36 @@ namespace DataPumpModels
 
         public EarthRangerObservation ToEarthRangerObservation()
         {
-
             var observation = new EarthRangerObservation();
-            //var location = new EarthRangerLocation();
-            //location.lat = (decimal)latitude;
-            //location.lon = (decimal)longitude;
-            //observation.location = location;
+            var location = new EarthRangerLocation();
+            location.lat = (decimal)latitude;
+            location.lon = (decimal)longitude;
+            observation.location = location;
 
-            //observation.subject_name = device_alias;
-            //observation.manufacturer_id = device_id.ToString();
-            //observation.recorded_at = gps_datetime.spe;
+            observation.subject_name = device_alias;
+            observation.manufacturer_id = $"smartone-{system_id}-{device_id}";
+            observation.recorded_at = gps_datetime;
 
-            //observation.additional = new Dictionary<string, object>
-            //    {
-            //        { "recvgpstime", recvgpstime },
-            //        { "id", id },
-            //        { "speed", speed },
-            //        { "deviceid", deviceid },
-            //        { "deviceguid", deviceguid },
-            //        { "gpscontext", gpscontext },
-            //        { "gpstype", gpstype },
-            //        { "streetname", streetname },
-            //        { "rssi", rssi },
-            //        { "direction", direction },
-            //        { "activeflag", activeflag },
-            //        { "description", description }
-            //    };
+            observation.additional = new Dictionary<string, object>
+            {
+                { "receive_datetime", receive_datetime },
+                { "device_alias", device_alias },
+                { "car_make", car_make },
+                { "car_license_plate", car_license_plate },
+                { "device_number", device_number },
+                { "guid", guid },
+                { "puc_id", puc_id },
+                { "system_id", system_id },
+                { "device_id", device_id },
+                { "speed", speed },
+                { "direction", direction },
+                { "state", state },
+                { "rssi_up", rssi_up },
+                { "rssi_down", rssi_down },
+                { "subject_name", device_alias }
+            };
 
             return observation;
-
         }
 
         public GundiV2Observation ToGundiV2Observation()
