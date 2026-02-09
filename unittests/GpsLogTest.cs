@@ -139,7 +139,8 @@ namespace general_tests
             IDataReader mock_reader = reader_mocker.Object;
 
             var writer_mocker = new Mock<IDataWriter>();
-            writer_mocker.Setup(f => f.PostObservation(It.IsAny<ISourceRecord>())).Returns(async () => 1);
+            writer_mocker.Setup(f => f.PostObservation(It.IsAny<ISourceRecord>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.FromResult(1));
 
 
             IDataWriter mock_writer = writer_mocker.Object;
@@ -150,13 +151,13 @@ namespace general_tests
             await foreach (var item in mock_reader.ReadNew(lower_date))
             {
 
-                await mock_writer.PostObservation(item);
+                await mock_writer.PostObservation(item, CancellationToken.None);
                 Console.WriteLine(item.cursor_at);
 
                 lower_date = item.cursor_at > lower_date ? item.cursor_at : lower_date;
             }
 
-            writer_mocker.Verify(f => f.PostObservation(It.IsAny<ISourceRecord>()), Times.Exactly(3));
+            writer_mocker.Verify(f => f.PostObservation(It.IsAny<ISourceRecord>(), It.IsAny<CancellationToken>()), Times.Exactly(3));
             Assert.True(lower_date == DateTime.SpecifyKind(DateTime.Parse("2024-01-25 15:00:00"), DateTimeKind.Utc));
         }
 
