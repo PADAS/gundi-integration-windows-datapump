@@ -14,6 +14,7 @@ using System;
 using System.ComponentModel;
 
 using Polly;
+using Polly.CircuitBreaker;
 using Polly.Extensions.Http;
 using System.Net;
 using System.Threading;
@@ -685,11 +686,34 @@ public class GundiV2DataWriter : IDataWriter
         MaxConnectionsPerServer = 10
     };
 
+    // Shared circuit breaker for all GundiV2DataWriter instances - if API is down, all writers should know
+    private static readonly AsyncCircuitBreakerPolicy<HttpResponseMessage> SharedCircuitBreaker =
+        HttpPolicyExtensions
+            .HandleTransientHttpError()
+            .OrResult(msg => msg.StatusCode == HttpStatusCode.TooManyRequests)
+            .CircuitBreakerAsync(
+                handledEventsAllowedBeforeBreaking: 5,
+                durationOfBreak: TimeSpan.FromMinutes(1),
+                onBreak: (outcome, breakDelay) =>
+                {
+                    LogManager.GetCurrentClassLogger().Error(
+                        $"Circuit OPEN - Gundi API unhealthy. Pausing for {breakDelay.TotalSeconds}s. " +
+                        $"Reason: {outcome.Exception?.Message ?? $"HTTP {(int?)outcome.Result?.StatusCode}"}");
+                },
+                onReset: () =>
+                {
+                    LogManager.GetCurrentClassLogger().Info("Circuit CLOSED - Gundi API recovered. Resuming normal operation.");
+                },
+                onHalfOpen: () =>
+                {
+                    LogManager.GetCurrentClassLogger().Info("Circuit HALF-OPEN - Testing Gundi API health...");
+                });
+
     private readonly HttpClient _httpClient;
     private readonly string _destination;
     private readonly string _apikey;
     private readonly HashSet<string> matchingGroups;
-    private readonly IAsyncPolicy<HttpResponseMessage> _retryPolicy;
+    private readonly IAsyncPolicy<HttpResponseMessage> _resiliencePolicy;
 
     private readonly SemaphoreSlim _rateLimiter;
     private readonly TimeSpan _httpTimeout;
@@ -700,7 +724,7 @@ public class GundiV2DataWriter : IDataWriter
     {
         return HttpPolicyExtensions
             .HandleTransientHttpError() // 5xx, 408, and network failures
-            .OrResult(msg => msg.StatusCode == HttpStatusCode.TooManyRequests) // optional
+            .OrResult(msg => msg.StatusCode == HttpStatusCode.TooManyRequests)
             .WaitAndRetryAsync(
                 retryCount: 5,
                 sleepDurationProvider: retryAttempt =>
@@ -730,7 +754,8 @@ public class GundiV2DataWriter : IDataWriter
         this._apikey = apikey;
         this._httpClient.DefaultRequestHeaders.Add("apikey", this._apikey);
         this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.1");
-        this._retryPolicy = GetRetryPolicy(Random.Shared);
+        // Wrap retry policy with circuit breaker: CircuitBreaker(Retry(action))
+        this._resiliencePolicy = Policy.WrapAsync(SharedCircuitBreaker, GetRetryPolicy(Random.Shared));
         this.matchingGroups = new HashSet<string>();
 
         // configure timeout on the HttpClient and keep a copy locally
@@ -764,10 +789,10 @@ public class GundiV2DataWriter : IDataWriter
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             linkedCts.CancelAfter(_httpTimeout);
 
-            // Polly supports passing the CancellationToken to ExecuteAsync
-            var response = await _retryPolicy.ExecuteAsync(async (ct) =>
+            // Execute with retry + circuit breaker policy
+            // BrokenCircuitException will propagate if circuit is open
+            var response = await _resiliencePolicy.ExecuteAsync(async (ct) =>
             {
-                // pass the cancellation token to the HTTP call
                 return await _httpClient.PostAsJsonAsync($"{this._destination}/v2/observations/", payload, ct);
             }, linkedCts.Token).ConfigureAwait(false);
 
@@ -813,11 +838,34 @@ public class EarthRangerDataWriter : IDataWriter
         MaxConnectionsPerServer = 10
     };
 
+    // Shared circuit breaker for all EarthRangerDataWriter instances - if API is down, all writers should know
+    private static readonly AsyncCircuitBreakerPolicy<HttpResponseMessage> SharedCircuitBreaker =
+        HttpPolicyExtensions
+            .HandleTransientHttpError()
+            .OrResult(msg => msg.StatusCode == HttpStatusCode.TooManyRequests)
+            .CircuitBreakerAsync(
+                handledEventsAllowedBeforeBreaking: 5,
+                durationOfBreak: TimeSpan.FromMinutes(1),
+                onBreak: (outcome, breakDelay) =>
+                {
+                    LogManager.GetCurrentClassLogger().Error(
+                        $"Circuit OPEN - EarthRanger API unhealthy. Pausing for {breakDelay.TotalSeconds}s. " +
+                        $"Reason: {outcome.Exception?.Message ?? $"HTTP {(int?)outcome.Result?.StatusCode}"}");
+                },
+                onReset: () =>
+                {
+                    LogManager.GetCurrentClassLogger().Info("Circuit CLOSED - EarthRanger API recovered. Resuming normal operation.");
+                },
+                onHalfOpen: () =>
+                {
+                    LogManager.GetCurrentClassLogger().Info("Circuit HALF-OPEN - Testing EarthRanger API health...");
+                });
+
     private readonly HttpClient _httpClient;
     private readonly string _destination;
     private readonly string _token;
     private readonly string _provider_key;
-    private readonly IAsyncPolicy<HttpResponseMessage> _retryPolicy;
+    private readonly IAsyncPolicy<HttpResponseMessage> _resiliencePolicy;
     private readonly SemaphoreSlim _rateLimiter;
     private readonly TimeSpan _httpTimeout;
 
@@ -856,7 +904,8 @@ public class EarthRangerDataWriter : IDataWriter
         this._provider_key = provider_key;
         this._rateLimiter = new SemaphoreSlim(maxConcurrency);
         this._httpTimeout = httpTimeout ?? TimeSpan.FromSeconds(30);
-        this._retryPolicy = GetRetryPolicy(Random.Shared);
+        // Wrap retry policy with circuit breaker: CircuitBreaker(Retry(action))
+        this._resiliencePolicy = Policy.WrapAsync(SharedCircuitBreaker, GetRetryPolicy(Random.Shared));
 
         this._httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", this._token);
         this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.1");
@@ -877,7 +926,9 @@ public class EarthRangerDataWriter : IDataWriter
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
             linkedCts.CancelAfter(_httpTimeout);
 
-            var response = await _retryPolicy.ExecuteAsync(async (ct) =>
+            // Execute with retry + circuit breaker policy
+            // BrokenCircuitException will propagate if circuit is open
+            var response = await _resiliencePolicy.ExecuteAsync(async (ct) =>
             {
                 return await _httpClient.PostAsJsonAsync(
                     $"{this._destination}/api/v1.0/sensors/dasradioagent/{this._provider_key}/status",

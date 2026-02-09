@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using NLog;
+using Polly.CircuitBreaker;
 
 namespace DataPump
 {
@@ -7,6 +8,7 @@ namespace DataPump
     {
         private const int MaxDbRetries = 5;
         private const int BaseRetryDelayMs = 5000;
+        private static readonly TimeSpan CircuitBreakerPauseTime = TimeSpan.FromMinutes(1);
 
         int _intervalMs = 5000;
 
@@ -41,20 +43,30 @@ namespace DataPump
                             logger.Debug("item: " + JsonSerializer.Serialize(item));
 
                             await writer.PostObservation(item, cancellationToken);
+
+                            // Only advance cursor on successful post
+                            lower_date = item.cursor_at > lower_date ? item.cursor_at : lower_date;
                         }
                         catch (OperationCanceledException)
                         {
                             // Service shutdown - propagate
                             throw;
                         }
+                        catch (BrokenCircuitException)
+                        {
+                            // Circuit breaker is open - API is unhealthy
+                            // Don't advance cursor, pause processing, and retry from this point
+                            logger.Warn($"Circuit breaker open - pausing processing for {CircuitBreakerPauseTime.TotalSeconds}s before retrying...");
+                            await Task.Delay(CircuitBreakerPauseTime, cancellationToken);
+                            break; // Exit foreach to retry from current lower_date
+                        }
                         catch (Exception writeEx)
                         {
                             // Writer error for this specific record - log and continue with next record
                             logger.Warn($"Failed to post observation for record at {item.cursor_at}: {writeEx.Message}");
+                            // Advance cursor to skip this problematic record
+                            lower_date = item.cursor_at > lower_date ? item.cursor_at : lower_date;
                         }
-
-                        // Always advance cursor so we don't reprocess this record
-                        lower_date = item.cursor_at > lower_date ? item.cursor_at : lower_date;
                     }
 
                     // Reset error counter on successful read cycle
