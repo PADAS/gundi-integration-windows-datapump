@@ -33,14 +33,31 @@ namespace DataPump
                 {
                     await foreach (var item in reader.ReadNew(lower_date))
                     {
-                        logger.Debug("item: " + JsonSerializer.Serialize(item));
+                        // Check for cancellation between records
+                        cancellationToken.ThrowIfCancellationRequested();
 
-                        await writer.PostObservation(item, cancellationToken);
+                        try
+                        {
+                            logger.Debug("item: " + JsonSerializer.Serialize(item));
 
+                            await writer.PostObservation(item, cancellationToken);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // Service shutdown - propagate
+                            throw;
+                        }
+                        catch (Exception writeEx)
+                        {
+                            // Writer error for this specific record - log and continue with next record
+                            logger.Warn($"Failed to post observation for record at {item.cursor_at}: {writeEx.Message}");
+                        }
+
+                        // Always advance cursor so we don't reprocess this record
                         lower_date = item.cursor_at > lower_date ? item.cursor_at : lower_date;
                     }
 
-                    // Reset error counter on successful read
+                    // Reset error counter on successful read cycle
                     consecutiveDbErrors = 0;
 
                     await Task.Delay(this._intervalMs, cancellationToken).ContinueWith(_ => logger.Debug("Tick."));

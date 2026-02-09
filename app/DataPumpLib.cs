@@ -776,19 +776,24 @@ public class GundiV2DataWriter : IDataWriter
 
             return 0;
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Timeout occurred (not service shutdown) - treat as transient failure, don't propagate
+            logger.Warn($"PostObservation timed out for record at {record.cursor_at}. Will retry on next poll cycle.");
+        }
         catch (OperationCanceledException)
         {
-            // Cancellation requested - log and rethrow so caller can observe it
+            // Actual service shutdown requested - rethrow so caller can observe it
             logger.Info($"PostObservation cancelled for record at {record.cursor_at}");
             throw;
         }
         catch (HttpRequestException e)
         {
-            logger.Warn("Exception: " + e.Message);
+            logger.Warn($"HTTP error posting observation: {e.Message}");
         }
         catch (Exception e)
         {
-            logger.Info("Exception: " + e.Message);
+            logger.Warn($"Unexpected error posting observation: {e.Message}");
         }
         finally
         {
@@ -884,18 +889,24 @@ public class EarthRangerDataWriter : IDataWriter
 
             return 0;
         }
+        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
+        {
+            // Timeout occurred (not service shutdown) - treat as transient failure, don't propagate
+            logger.Warn($"PostObservation timed out for record at {record.cursor_at}. Will retry on next poll cycle.");
+        }
         catch (OperationCanceledException)
         {
+            // Actual service shutdown requested - rethrow so caller can observe it
             logger.Info($"PostObservation cancelled for record at {record.cursor_at}");
             throw;
         }
         catch (HttpRequestException e)
         {
-            logger.Warn("Exception: " + e.Message);
+            logger.Warn($"HTTP error posting observation: {e.Message}");
         }
         catch (Exception e)
         {
-            logger.Info("Exception: " + e.Message);
+            logger.Warn($"Unexpected error posting observation: {e.Message}");
         }
         finally
         {
