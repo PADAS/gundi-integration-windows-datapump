@@ -143,7 +143,20 @@ namespace Configurator
 
             gundiConnectionCard.ConnectionNameTextBox.DataBindings.Add("Text", gundiConnection, "ConnectionName", false, DataSourceUpdateMode.OnPropertyChanged);
             gundiConnectionCard.GundiApiKeyTextBox.DataBindings.Add("Text", gundiConnection, "ApiKey", false, DataSourceUpdateMode.OnPropertyChanged);
-            gundiConnectionCard.GundiDestinationComboBox.DataBindings.Add("Text", gundiConnection, "Destination", false, DataSourceUpdateMode.OnPropertyChanged);
+            // gundiConnectionCard.GundiDestinationComboBox.DataBindings.Add("Text", gundiConnection, "Destination", false, DataSourceUpdateMode.OnPropertyChanged);
+            gundiConnectionCard.GundiDestinationComboBox.DataBindings.Add("SelectedItem", gundiConnection, "Destination", false, DataSourceUpdateMode.OnPropertyChanged);
+
+            // ensure the combo shows the current value (if present) or defaults to the first item
+            if (!string.IsNullOrEmpty(gundiConnection.Destination) &&
+                gundiConnectionCard.GundiDestinationComboBox.Items.Contains(gundiConnection.Destination))
+            {
+                gundiConnectionCard.GundiDestinationComboBox.SelectedItem = gundiConnection.Destination;
+            }
+            else if (string.IsNullOrEmpty(gundiConnection.Destination) &&
+                     gundiConnectionCard.GundiDestinationComboBox.Items.Count > 0)
+            {
+                gundiConnectionCard.GundiDestinationComboBox.SelectedIndex = 0;
+            }
 
             //gundiConnectionCard.GroupsListBox.DataSource = groupAliases;
             gundiConnectionCard.GroupsListBox.DisplayMember = "alias";
@@ -495,7 +508,6 @@ namespace Configurator
                 TabIndex = 2
             };
 
-            //GundiDestinationComboBox.Items.AddRange(new object[] { "https://sensors.api.gundiservice.org", "https://sensors.api.stage.gundiservice.org" });
             GundiDestinationComboBox.Items.AddRange(new object[] { "https://sensors.api.gundiservice.org" });
 
             GundiDestinationComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
