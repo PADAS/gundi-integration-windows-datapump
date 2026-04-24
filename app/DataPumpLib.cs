@@ -17,8 +17,28 @@ using Polly;
 using Polly.CircuitBreaker;
 using Polly.Extensions.Http;
 using System.Net;
+using System.Reflection;
 using System.Threading;
 using System.Linq;
+
+internal static class VersionInfo
+{
+    // Built once at first use from the DataPump assembly's
+    // AssemblyInformationalVersionAttribute (MSBuild auto-derives this
+    // from <Version> in DataPump.csproj, optionally suffixed with
+    // +<SourceRevisionId> when that property is supplied at build time).
+    public static readonly string UserAgent = BuildUserAgent();
+
+    private static string BuildUserAgent()
+    {
+        var asm = typeof(VersionInfo).Assembly;
+        var version =
+            asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? asm.GetName().Version?.ToString()
+            ?? "unknown";
+        return $"Gundi Radio Service/{version}";
+    }
+}
 
 
 
@@ -760,7 +780,7 @@ public class GundiV2DataWriter : IDataWriter
         this._destination = destination;
         this._apikey = apikey;
         this._httpClient.DefaultRequestHeaders.Add("apikey", this._apikey);
-        this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.1");
+        this._httpClient.DefaultRequestHeaders.Add("User-Agent", VersionInfo.UserAgent);
         // Wrap retry policy with circuit breaker: CircuitBreaker(Retry(action))
         this._resiliencePolicy = Policy.WrapAsync(SharedCircuitBreaker, GetRetryPolicy(Random.Shared));
         this.matchingGroups = new HashSet<string>();
@@ -974,7 +994,7 @@ public class EarthRangerDataWriter : IDataWriter
         this._resiliencePolicy = Policy.WrapAsync(SharedCircuitBreaker, GetRetryPolicy(Random.Shared));
 
         this._httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", this._token);
-        this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.1");
+        this._httpClient.DefaultRequestHeaders.Add("User-Agent", VersionInfo.UserAgent);
     }
 
     public async Task<int> PostObservation(ISourceRecord record, CancellationToken cancellation = default)
