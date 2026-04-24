@@ -7,7 +7,6 @@ using NLog;
 using DataPump;
 
 using System.Threading.Tasks;
-using worker;
 
 public class SupportedReader
 {
@@ -30,6 +29,7 @@ public class RouteConfiguration
     public SupportedReader DatabaseType { get; set; }
     public string? DatabaseSchema { get; set; } = "";
     public string? intervalMs { get; set; } = "5000";
+    public int BatchSize { get; set; } = 25;
 
     public List<GundiConnection> gundiConnections { get; set; }
 
@@ -90,7 +90,7 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
                 IDataReader reader;
                 IDataWriter data_writer;
                 if (routeConfiguration.DatabaseType.Type == RadioServiceConfiguration.ReaderType.KAS20) {
-                    reader = new KAS20DataReader(routeConfiguration.Hostname, routeConfiguration.DatabaseName, 
+                    reader = new KAS20DataReader(routeConfiguration.Hostname, routeConfiguration.DatabaseName,
                         routeConfiguration.Username, routeConfiguration.Password);
                 }
                 else if (routeConfiguration.DatabaseType.Type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus)
@@ -114,32 +114,39 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
                 else
                 {
                     logger.Error("Stubbornly refusing to run because I'm not configured with a database type.");
-                    Environment.Exit(1);
-                    return;
+                    throw new Exception("Database type not configured.");
                 }
 
-                logger.Info("Starting up");
+                try
+                {
+                    logger.Info("Starting up");
 
-
-                var grouped_writer = new GroupedDataWriter();
-                routeConfiguration.gundiConnections.ForEach(gundiConnection =>
-                    {
-                        var w = new GundiV2DataWriter(gundiConnection.Destination, gundiConnection.ApiKey);
-                        gundiConnection.GroupAliases.ForEach(groupAlias =>
+                    var grouped_writer = new GroupedDataWriter();
+                    routeConfiguration.gundiConnections.ForEach(gundiConnection =>
                         {
-                            w.AddMatchingGroup(groupAlias.guid);
-                        });
-                        grouped_writer.AddWriter(w);
-                    }
-                );
-                data_writer = grouped_writer;
-                var dataPump = new RadioDataPump(routeConfiguration.intervalMs == null ? 5000 : int.Parse(routeConfiguration.intervalMs));
+                            var w = new GundiV2DataWriter(gundiConnection.Destination, gundiConnection.ApiKey);
+                            gundiConnection.GroupAliases.ForEach(groupAlias =>
+                            {
+                                w.AddMatchingGroup(groupAlias.guid);
+                            });
+                            grouped_writer.AddWriter(w);
+                        }
+                    );
+                    data_writer = grouped_writer;
+                    var dataPump = new RadioDataPump(
+                        routeConfiguration.intervalMs == null ? 5000 : int.Parse(routeConfiguration.intervalMs),
+                        routeConfiguration.BatchSize);
 
+                    var val = await dataPump.Run(reader, data_writer, stoppingToken);
 
-                var val = await dataPump.Run(reader, data_writer, stoppingToken);
-
-                logger.Info("Data pump service finished.");
-                logger.Info("Date: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:sszzz"));
+                    logger.Info("Data pump service finished.");
+                    logger.Info("Date: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:sszzz"));
+                }
+                finally
+                {
+                    // Dispose reader to save state to disk
+                    reader.Dispose();
+                }
                 
 
             }

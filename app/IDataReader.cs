@@ -11,7 +11,7 @@ public class TestResult
     public string Message { get; set; }
 }
 
-public interface IDataReader
+public interface IDataReader : IDisposable
 {
     IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date);
 
@@ -39,5 +39,10 @@ public class GroupAlias
             return false;
         }
         return guid == ((GroupAlias)obj).guid;
+    }
+
+    public override int GetHashCode()
+    {
+        return guid.GetHashCode();
     }
 }
