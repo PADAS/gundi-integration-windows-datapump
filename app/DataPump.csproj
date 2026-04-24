@@ -9,9 +9,9 @@
       Version: bump this when releasing. MSBuild auto-populates
       AssemblyVersion / FileVersion / InformationalVersion from it.
       If SourceRevisionId is passed in at build time (publish.proj does
-      this from `git rev-parse --short HEAD`), InformationalVersion
-      becomes "<Version>+<sha>", which the User-Agent picks up via
-      reflection in GundiV2DataWriter.
+      this from a short git SHA), InformationalVersion becomes
+      "<Version>+<sha>", which the User-Agent picks up via reflection
+      in GundiV2DataWriter.
     -->
     <Version>2.2.0</Version>
   </PropertyGroup>
