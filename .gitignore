@@ -6,3 +6,4 @@ service/Properties/PublishProfiles/FolderProfile.pubxml.user
 **/*.user
 service/Properties/PublishProfiles/FolderProfile.pubxml.user
 service/appsettings.json.20240423.smartone
+*.local.ps1
