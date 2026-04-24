@@ -1,0 +1,29 @@
+<Project DefaultTargets="Package">
+
+  <PropertyGroup>
+    <Version Condition="'$(Version)' == ''">1.0.0</Version>
+    <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildThisFileDirectory)publish\out\</PublishDir>
+    <ZipOutputPath Condition="'$(ZipOutputPath)' == ''">$(MSBuildThisFileDirectory)publish\gundi-radio-service-$(Version).zip</ZipOutputPath>
+    <PublishConfiguration Condition="'$(PublishConfiguration)' == ''">Release</PublishConfiguration>
+  </PropertyGroup>
+
+  <Target Name="Clean">
+    <RemoveDir Directories="$(PublishDir)" Condition="Exists('$(PublishDir)')" />
+    <Delete Files="$(ZipOutputPath)" Condition="Exists('$(ZipOutputPath)')" />
+  </Target>
+
+  <Target Name="Publish" DependsOnTargets="Clean">
+    <MSBuild Projects="Configurator\Configurator.csproj"
+             Targets="Restore;Publish"
+             Properties="PublishProfile=FolderProfile;PublishDir=$(PublishDir);Configuration=$(PublishConfiguration)" />
+    <MSBuild Projects="service\RadioService.csproj"
+             Targets="Restore;Publish"
+             Properties="PublishProfile=FolderProfile;PublishDir=$(PublishDir);Configuration=$(PublishConfiguration)" />
+  </Target>
+
+  <Target Name="Package" DependsOnTargets="Publish">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;Compress-Archive -Path '$(PublishDir)*' -DestinationPath '$(ZipOutputPath)' -Force&quot;" />
+    <Message Text="Packaged: $(ZipOutputPath)" Importance="high" />
+  </Target>
+
+</Project>

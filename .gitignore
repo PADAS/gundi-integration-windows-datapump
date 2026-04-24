@@ -1,5 +1,6 @@
 .vs
 obj
+publish
 service/RadioService.csproj.user
 service/Properties/PublishProfiles/FolderProfile.pubxml.user
 **/*.user
