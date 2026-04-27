@@ -1,0 +1,18 @@
+<Project>
+  <!--
+    Single source of truth for the product version. Bump this when releasing.
+
+    Imported by:
+      - app/DataPump.csproj (so dev/CI builds stamp the right version into
+        AssemblyInformationalVersion, which VersionInfo reflects to build
+        the User-Agent header at runtime).
+      - publish.proj (so `msbuild publish.proj` packages the right version
+        without requiring /p:Version on the command line).
+
+    publish.proj also sets SourceRevisionId from the short git SHA at build
+    time, which makes InformationalVersion "<Version>+<sha>".
+  -->
+  <PropertyGroup>
+    <Version>2.2.0</Version>
+  </PropertyGroup>
+</Project>

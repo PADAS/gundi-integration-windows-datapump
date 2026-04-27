@@ -5,16 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Platforms>AnyCPU;x64</Platforms>
-    <!--
-      Version: bump this when releasing. MSBuild auto-populates
-      AssemblyVersion / FileVersion / InformationalVersion from it.
-      If SourceRevisionId is passed in at build time (publish.proj does
-      this from a short git SHA), InformationalVersion becomes
-      "<Version>+<sha>", which the User-Agent picks up via reflection
-      in GundiV2DataWriter.
-    -->
-    <Version>2.2.0</Version>
   </PropertyGroup>
+  <!-- Version lives in ../Version.props (shared with publish.proj). -->
+  <Import Project="..\Version.props" />
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.10" />
