@@ -14,6 +14,14 @@
 
 $ErrorActionPreference = 'Stop'
 
+# Refuse to run as the tracked template — running this file directly would
+# leak CHANGE_ME credentials into the caller's session env vars and produce
+# noisy auth failures instead of clean skips. Copy to a *.local.ps1 sibling
+# (gitignored) and run that copy.
+if ((Split-Path -Leaf $MyInvocation.MyCommand.Path) -eq 'run-integration-tests.ps1') {
+    throw "This is a template. Copy it to run-integration-tests.local.ps1 (gitignored) and edit that copy."
+}
+
 # --- PostgreSQL readers -----------------------------------------------------
 
 $env:GUNDI_TEST_SMARTDISPATCH_CONNSTR = "Host=localhost;Username=postgres;Password=CHANGE_ME;Database=smartdispatch"
