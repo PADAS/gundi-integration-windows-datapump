@@ -50,9 +50,9 @@ public class KAS20DataReader : IDataReader
     private bool _disposed = false;
     private static Logger logger = LogManager.GetCurrentClassLogger();
 
-    public KAS20DataReader(string database_server, string database_name, string database_user, string database_password, int connectionTimeoutSeconds = 30)
+    public KAS20DataReader(string database_server, string database_name, string database_user, string database_password, int connectionTimeoutSeconds = 30, int commandTimeoutSeconds = 300)
     {
-        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;Connect Timeout={connectionTimeoutSeconds};";
+        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;Connect Timeout={connectionTimeoutSeconds};Command Timeout={commandTimeoutSeconds};";
         _stateHandler = new DataPump.StateHandler("state.json");
         _state = _stateHandler.LoadState();
         logger.Info($"Created KAS20DataReader. host: {database_server}, db: {database_name}, user: {database_user}");
@@ -196,9 +196,9 @@ public class TrbonetPlusDataReader : IDataReader
     private bool _disposed = false;
     private static Logger logger = LogManager.GetCurrentClassLogger();
 
-    public TrbonetPlusDataReader(string database_server, string database_name, string database_user, string database_password, int connectionTimeoutSeconds = 30)
+    public TrbonetPlusDataReader(string database_server, string database_name, string database_user, string database_password, int connectionTimeoutSeconds = 30, int commandTimeoutSeconds = 300)
     {
-        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;Connect Timeout={connectionTimeoutSeconds};";
+        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;Connect Timeout={connectionTimeoutSeconds};Command Timeout={commandTimeoutSeconds};";
         _stateHandler = new DataPump.StateHandler("state.json");
         _state = _stateHandler.LoadState();
         logger.Info($"Created TrbonetPlusDataReader. host: {database_server}, db: {database_name}, user: {database_user}");
@@ -341,11 +341,11 @@ public class SmartDispatchPlusV1Reader : IDataReader
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
 
-    public SmartDispatchPlusV1Reader(string database_server, string database_name, string database_user, string database_password, string database_schema, int connectionTimeoutSeconds = 30)
+    public SmartDispatchPlusV1Reader(string database_server, string database_name, string database_user, string database_password, string database_schema, int connectionTimeoutSeconds = 30, int commandTimeoutSeconds = 300)
     {
         _database_schema = database_schema;
         _database_name = database_name;
-        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;Timeout={connectionTimeoutSeconds};";
+        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;Timeout={connectionTimeoutSeconds};Command Timeout={commandTimeoutSeconds};";
         _stateHandler = new DataPump.StateHandler("state.json");
         _state = _stateHandler.LoadState();
         logger.Info($"Created {GetType().Name}. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}");
@@ -513,11 +513,11 @@ public class SmartOneDispatchReader : IDataReader
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
 
-    public SmartOneDispatchReader(string database_server, string database_name, string database_user, string database_password, string database_schema, int connectionTimeoutSeconds = 30)
+    public SmartOneDispatchReader(string database_server, string database_name, string database_user, string database_password, string database_schema, int connectionTimeoutSeconds = 30, int commandTimeoutSeconds = 300)
     {
         _database_name = database_name;
         _database_schema = database_schema;
-        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;Timeout={connectionTimeoutSeconds};";
+        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;Timeout={connectionTimeoutSeconds};Command Timeout={commandTimeoutSeconds};";
         _stateHandler = new DataPump.StateHandler("state.json");
         _state = _stateHandler.LoadState();
         logger.Info($"Created SmartOneDispatchReader. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}");
