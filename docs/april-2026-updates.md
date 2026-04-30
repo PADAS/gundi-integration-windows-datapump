@@ -1,16 +1,16 @@
-# Recent changes
+# April 2026 updates
 
-This document records substantive changes made on the
-`claude/crazy-villani-0b1f28` branch (PR #10) that future humans and AI
-agents will need to understand before working on the codebase. It is
-written for both audiences — concise enough to scan, but specific
-enough to act on without re-reading the diffs.
+A snapshot of the substantive changes made to this codebase in April 2026
+(PR #10 and follow-ups). Written so future-me can come back cold and
+re-form a working mental model without re-reading every diff.
 
-The three topics, in order:
+Topics:
 
 1. [Npgsql downgrade for PostgreSQL 10 compatibility](#1-npgsql-downgrade-for-postgresql-10-compatibility)
 2. [Unit test additions (server error / circuit breaker / batching)](#2-unit-test-additions)
 3. [Integration tests against real database snapshots](#3-integration-tests-against-real-database-snapshots)
+4. [Versioning, packaging, and GCS publish workflow](#4-versioning-packaging-and-gcs-publish-workflow)
+5. [Configurable command timeout for slow databases](#5-configurable-command-timeout-for-slow-databases)
 
 ---
 
@@ -255,9 +255,112 @@ dotnet test unittests\DataPump.Tests.csproj `
 
 ---
 
+## 4. Versioning, packaging, and GCS publish workflow
+
+### What changed
+
+Three things landed together:
+
+| File | Role |
+| --- | --- |
+| `Version.props` (new, repo root) | Single source of truth for `<Version>`. |
+| `publish.proj` (new) | MSBuild script that produces `publish/gundi-radio-service-<version>.zip`, stamping `git rev-parse --short HEAD` into `SourceRevisionId` so the runtime User-Agent becomes `Gundi Radio Service/<version>+<sha>`. |
+| `publish-to-gcs.ps1` (new, repo root) | Uploads the zip to `gs://radio-connectors/`, runs `gsutil acl ch -u AllUsers:R`, prints the public URL. |
+| `docs/building-and-publishing.md` (new) | Operator-facing walkthrough for the above. |
+
+The User-Agent reflection lives in `VersionInfo` at the top of
+`app/DataPumpLib.cs` — it reads `AssemblyInformationalVersionAttribute`,
+which MSBuild auto-derives from `<Version>` plus optional
+`SourceRevisionId`.
+
+### Why
+
+Before, the version was hardcoded to `"Gundi Radio Service/2.1"` in two
+places, dev builds could not be told apart from release builds, and
+publishing a zip required a sequence of clicks in Visual Studio.
+
+### How to release
+
+```powershell
+# bump the one line in Version.props, commit
+msbuild publish.proj
+.\publish-to-gcs.ps1
+```
+
+Full details in `docs/building-and-publishing.md`. Don't forget to
+authorize the SSH key for the PADAS GitHub org (SAML SSO) when pushing
+from a new machine.
+
+### Constraints for future work
+
+- **`Version.props` is the only place to edit the version.** Both
+  `app/DataPump.csproj` and `publish.proj` import it.
+- **`run-integration-tests.ps1` refuses to run as itself.** It checks
+  its own filename and throws if it hasn't been copied to `*.local.ps1`.
+  This is to keep `CHANGE_ME` placeholder credentials from leaking into
+  the caller's session env.
+
+---
+
+## 5. Configurable command timeout for slow databases
+
+### What changed
+
+| File | Change |
+| --- | --- |
+| `app/DataPumpLib.cs` | All four reader constructors now take `int commandTimeoutSeconds = 300` and append `Command Timeout=<n>` to the connection string. |
+| `service/RadioDataPumpService.cs` | `RouteConfiguration` gained `CommandTimeoutSeconds` (default 300) and `ConnectionTimeoutSeconds` (default 30); both are passed to the reader constructors. |
+| `Version.props` | Bumped to `2.3.0`. |
+
+### Why
+
+A user running PostgreSQL 10 reported the service failing on first run
+with `Timeout during reading attempt` after every retry. Diagnosis: the
+Smart One Dispatch reader's initial query (a 2-day lookback against
+`dbo.gps_location_data_base` joined to `dbo.device_info`, sorted by
+`receive_datetime`, limited to 1000) was hitting Npgsql's default
+30-second command timeout because the table had no index on
+`receive_datetime` — PG was sequentially scanning and sorting the entire
+history table before it could stream the first row back.
+
+### What this fixes vs. doesn't fix
+
+- **Fixes**: anyone with a slow but eventually-responsive DB. Default
+  jumps from 30s to 300s, which clears the reported failure mode.
+- **Does not fix**: the underlying performance problem. The right
+  permanent answer is an index on the timestamp column, e.g.
+  `CREATE INDEX CONCURRENTLY idx_gps_location_data_base_receive_datetime
+  ON dbo.gps_location_data_base (receive_datetime);` — this brings the
+  query from minutes to milliseconds and stays fast as the table grows.
+
+### Configuration
+
+Operators can override the defaults in `appsettings.json`:
+
+```json
+"RouteConfiguration": {
+    "CommandTimeoutSeconds": 600,
+    "ConnectionTimeoutSeconds": 30
+}
+```
+
+Both are optional. Omitted, you get 300 / 30.
+
+### Constraints for future work
+
+- The Configurator UI does not (yet) expose either timeout. Its
+  test-connection queries are tiny so the default is fine, but if you
+  add UI for any reader knob you'll probably want these too.
+- The connection-string parameter is `Command Timeout` for both
+  `Microsoft.Data.SqlClient` and `Npgsql 6`. If Npgsql is ever upgraded,
+  re-verify the keyword still applies.
+
+---
+
 ## See also
 
 - `unittests/Integration/README.md` — operator-facing env var docs.
+- `docs/building-and-publishing.md` — operator-facing release docs.
 - `app/DataPumpLib.cs` — reader and writer implementations.
 - `service/RadioDataPumpService.cs` — service host that wires readers
   to writers.
