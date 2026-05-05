@@ -54,17 +54,23 @@ public class HeartbeatService : BackgroundService
 
     private void LogHeartbeatIfQuiet()
     {
-        // "Quiet" means we haven't recorded a batch in IdleThreshold. If
-        // there's never been a batch, the time since service startup
+        // Take a single atomic snapshot so the multi-field heartbeat
+        // line can't observe a half-updated state (e.g. LastBatchAt
+        // from after RecordBatch fires but TotalBatches still pre-
+        // increment).
+        var s = _status.Snapshot();
+
+        // "Quiet" means we haven't recorded a batch in IdleThreshold.
+        // If there's never been a batch, the time since service startup
         // stands in for "since last batch."
-        var lastEvent = _status.LastBatchAt ?? _status.StartedAt;
+        var lastEvent = s.LastBatchAt ?? s.StartedAt;
         var idle = DateTime.UtcNow - lastEvent;
         if (idle < IdleThreshold) return;
 
         var minutes = (int)idle.TotalMinutes;
-        var paused  = _status.IsPaused ? " (paused)" : "";
-        var cursor  = _status.LastCursor ?? "(none)";
-        var error   = _status.LastError  ?? "(none)";
+        var paused  = s.IsPaused ? " (paused)" : "";
+        var cursor  = s.LastCursor ?? "(none)";
+        var error   = s.LastError  ?? "(none)";
 
         logger.Info(
             "Heartbeat: idle for {0} minutes{1}; cursor at {2}; last error: {3}",

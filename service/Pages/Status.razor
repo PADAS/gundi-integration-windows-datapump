@@ -175,9 +175,14 @@
             period: TimeSpan.FromSeconds(1));
     }
 
-    private async void OnStatusChanged()
+    private void OnStatusChanged()
     {
-        await InvokeAsync(StateHasChanged);
+        // Fire-and-forget the dispatcher invocation. async-void here would
+        // let an exception in StateHasChanged escape the event-callback
+        // frame and tear down the Blazor circuit; assigning to discard
+        // keeps it as a Task whose faults route through Blazor's normal
+        // unhandled-task handling.
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private void OnTogglePause()

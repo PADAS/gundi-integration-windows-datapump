@@ -107,11 +107,15 @@ public class DiagnosticBundleService
 
     private string BuildMetadata()
     {
+        // Single atomic snapshot so the metadata's pump-status block is
+        // internally consistent, even if a batch fires between fields.
+        var s = _status.Snapshot();
+
         var sb = new StringBuilder();
         sb.AppendLine("Gundi Radio Service -- Diagnostic Bundle");
         sb.AppendLine();
         sb.AppendLine($"Generated:        {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
-        sb.AppendLine($"App version:      {_status.Version}");
+        sb.AppendLine($"App version:      {s.Version}");
         sb.AppendLine();
         sb.AppendLine("--- Environment ---");
         sb.AppendLine($"Machine:          {Environment.MachineName}");
@@ -121,15 +125,15 @@ public class DiagnosticBundleService
         sb.AppendLine($"Working dir:      {AppContext.BaseDirectory}");
         sb.AppendLine();
         sb.AppendLine("--- Pump status (live snapshot) ---");
-        sb.AppendLine($"Started at:       {_status.StartedAt:yyyy-MM-dd HH:mm:ss} UTC");
-        sb.AppendLine($"Running:          {_status.IsRunning}");
-        sb.AppendLine($"Paused:           {_status.IsPaused}");
-        sb.AppendLine($"Total batches:    {_status.TotalBatches}");
-        sb.AppendLine($"Total records:    {_status.TotalRecords}");
-        sb.AppendLine($"Last batch at:    {(_status.LastBatchAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "(never)")}");
-        sb.AppendLine($"Last batch count: {_status.LastBatchCount}");
-        sb.AppendLine($"Last cursor:      {_status.LastCursor ?? "(none)"}");
-        sb.AppendLine($"Last error:       {_status.LastError ?? "(none)"}");
+        sb.AppendLine($"Started at:       {s.StartedAt:yyyy-MM-dd HH:mm:ss} UTC");
+        sb.AppendLine($"Running:          {s.IsRunning}");
+        sb.AppendLine($"Paused:           {s.IsPaused}");
+        sb.AppendLine($"Total batches:    {s.TotalBatches}");
+        sb.AppendLine($"Total records:    {s.TotalRecords}");
+        sb.AppendLine($"Last batch at:    {(s.LastBatchAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "(never)")}");
+        sb.AppendLine($"Last batch count: {s.LastBatchCount}");
+        sb.AppendLine($"Last cursor:      {s.LastCursor ?? "(none)"}");
+        sb.AppendLine($"Last error:       {s.LastError ?? "(none)"}");
         sb.AppendLine();
         sb.AppendLine("--- Bundle contents ---");
         sb.AppendLine("radioservice.log   Full NLog output for this install.");
