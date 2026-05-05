@@ -261,20 +261,15 @@ install; OV certs (~$200–300/year) eliminate it after enough installs
 build up reputation. EV is recommended for the v3.0 launch given that
 self-installing customers are the primary cohort.
 
-### What `publish-velopack.ps1` is missing today
+### Known limitations
 
-- **Service registration via Velopack hooks.** Today's release flow
-  produces the artifacts but does not yet register the Windows service
-  through Velopack's install hooks; the existing `RadioService.exe
-  /install` path still works for manual setup. Wiring `OnAfterInstall`
-  to register the service (and `OnUninstall` to remove it) is a separate
-  follow-up — once that lands, `Setup.exe` becomes a true one-click
-  install.
-- **Service-restart-after-update verification.** Velopack queues the
-  file swap to run after this process exits, then respawns. Whether
-  Windows SCM picks the respawn up cleanly as a service start (vs. a
-  detached process) needs to be verified against a real Velopack-installed
-  release before customer rollout.
+- **Custom Welcome and Readme installer text** is currently disabled
+  in `publish-velopack.ps1` (the `--instWelcome` and `--instReadme`
+  flags are intentionally not passed). Velopack's MSI Handlebars
+  template uses single-brace placeholders that don't substitute at
+  runtime — see [velopack/velopack#877](https://github.com/velopack/velopack/issues/877).
+  Re-enable the flags once that ships. License and Conclusion
+  screens work and use our content already.
 
 ---
 
