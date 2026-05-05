@@ -111,15 +111,45 @@
         }
     }
 
+    // Guards the timer callback against reentrancy. System.Threading.Timer
+    // does NOT serialize its callbacks: if one tick is still running when
+    // the next would fire (e.g., the disk read takes longer than the 2s
+    // period on a slow box), they overlap and race on _lines / _loading.
+    // 0 = idle, 1 = a tick is in progress.
+    private int _autoRefreshInFlight;
+
     private void OnAutoRefreshChanged()
     {
         if (_autoRefresh)
         {
             // 2-second cadence is fast enough to feel "live" but slow
             // enough to avoid flooding the rendering pipeline on a noisy
-            // log. Each tick reads tail-from-disk; cost is negligible.
+            // log. Each tick reads tail-from-disk; cost is normally
+            // negligible but we still guard reentrancy in case it isn't.
             _autoRefreshTimer = new System.Threading.Timer(
-                _ => InvokeAsync(() => { Refresh(); StateHasChanged(); }),
+                _ =>
+                {
+                    if (Interlocked.CompareExchange(ref _autoRefreshInFlight, 1, 0) != 0)
+                    {
+                        // A previous tick hasn't finished yet. Skip this
+                        // one; the next period will try again.
+                        return;
+                    }
+                    try
+                    {
+                        InvokeAsync(() => { Refresh(); StateHasChanged(); });
+                    }
+                    finally
+                    {
+                        // InvokeAsync returns immediately (it's a fire-and-
+                        // forget dispatch); the actual UI work happens on
+                        // the dispatcher thread. Resetting the flag here
+                        // means we serialize *dispatches*, not *renders* --
+                        // which is what we want, since the dispatcher
+                        // itself serialises renders.
+                        Interlocked.Exchange(ref _autoRefreshInFlight, 0);
+                    }
+                },
                 state: null,
                 dueTime: TimeSpan.FromSeconds(2),
                 period: TimeSpan.FromSeconds(2));

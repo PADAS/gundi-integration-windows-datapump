@@ -31,6 +31,13 @@ public class PumpController
     {
         var old = Interlocked.Exchange(ref _cts, new CancellationTokenSource());
         old.Cancel();
-        old.Dispose();
+        // Deliberately NOT disposing the old CTS here. A worker thread
+        // could be concurrently reading ReloadToken and constructing a
+        // CreateLinkedTokenSource against it; disposing the source CTS
+        // mid-construction can throw ObjectDisposedException. Reloads
+        // happen on a human timescale (operator clicks Save), so the
+        // accumulated allocation -- a few hundred bytes per reload --
+        // is negligible across the lifetime of even a long-running
+        // service. Trade tiny leak for race-free correctness.
     }
 }

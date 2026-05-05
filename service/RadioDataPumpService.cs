@@ -168,21 +168,41 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
 
                 IDataWriter data_writer = new StatusTrackingWriter(grouped_writer, _status);
 
-                // intervalMs is stored as string for backwards compat. A
-                // non-numeric value (typo, unit suffix, etc.) shouldn't
-                // bring the pump down -- fall back to a sensible default
-                // and surface the bad value to the operator via the
-                // dashboard's last-error field.
+                // intervalMs is stored as string for backwards compat.
+                // Validate both that it parses AND that it lands in a
+                // sensible range. Outside the range:
+                //   0 or negative would make Task.Delay throw (or hang
+                //     forever for -1).
+                //   > 1 hour is almost certainly a typo (operator typed
+                //     hours when they meant ms, etc.) and would cause the
+                //     pump to look hung.
+                // Either way, fall back to the default and surface the
+                // bad value via the dashboard's last-error field.
                 const int defaultIntervalMs = 5000;
+                const int minIntervalMs = 100;          // 0.1s lower bound
+                const int maxIntervalMs = 60 * 60_000;  // 1h upper bound
+
                 int intervalMs = defaultIntervalMs;
-                if (!string.IsNullOrEmpty(routeConfig.intervalMs)
-                    && !int.TryParse(routeConfig.intervalMs, out intervalMs))
+                if (!string.IsNullOrEmpty(routeConfig.intervalMs))
                 {
-                    intervalMs = defaultIntervalMs;
-                    logger.Warn("intervalMs '{0}' is not a number; falling back to {1}ms.",
-                        routeConfig.intervalMs, intervalMs);
-                    _status.RecordError(
-                        $"intervalMs setting '{routeConfig.intervalMs}' is invalid; using {intervalMs}ms.");
+                    if (!int.TryParse(routeConfig.intervalMs, out var parsed))
+                    {
+                        logger.Warn("intervalMs '{0}' is not a number; falling back to {1}ms.",
+                            routeConfig.intervalMs, defaultIntervalMs);
+                        _status.RecordError(
+                            $"intervalMs setting '{routeConfig.intervalMs}' is invalid; using {defaultIntervalMs}ms.");
+                    }
+                    else if (parsed < minIntervalMs || parsed > maxIntervalMs)
+                    {
+                        logger.Warn("intervalMs {0} is outside the safe range [{1}, {2}]; falling back to {3}ms.",
+                            parsed, minIntervalMs, maxIntervalMs, defaultIntervalMs);
+                        _status.RecordError(
+                            $"intervalMs {parsed} is outside the safe range [{minIntervalMs}, {maxIntervalMs}]ms; using {defaultIntervalMs}ms.");
+                    }
+                    else
+                    {
+                        intervalMs = parsed;
+                    }
                 }
 
                 var dataPump = new RadioDataPump(intervalMs, routeConfig.BatchSize);
