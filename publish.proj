@@ -1,0 +1,50 @@
+<Project DefaultTargets="Package">
+
+  <!-- Shared version (also imported by app/DataPump.csproj). -->
+  <Import Project="Version.props" />
+
+  <PropertyGroup>
+    <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildThisFileDirectory)publish\out\</PublishDir>
+    <ZipOutputPath Condition="'$(ZipOutputPath)' == ''">$(MSBuildThisFileDirectory)publish\gundi-radio-service-$(Version).zip</ZipOutputPath>
+    <PublishConfiguration Condition="'$(PublishConfiguration)' == ''">Release</PublishConfiguration>
+  </PropertyGroup>
+
+  <Target Name="Clean">
+    <RemoveDir Directories="$(PublishDir)" Condition="Exists('$(PublishDir)')" />
+    <Delete Files="$(ZipOutputPath)" Condition="Exists('$(ZipOutputPath)')" />
+  </Target>
+
+  <!--
+    Populate SourceRevisionId from git so the published binaries'
+    AssemblyInformationalVersion becomes "<Version>+<sha>". Harmless if
+    git is missing or the build is outside a repo — the property just
+    stays empty and InformationalVersion falls back to plain <Version>.
+  -->
+  <Target Name="GetGitRevision">
+    <Exec Command="git rev-parse --short HEAD"
+          ConsoleToMSBuild="true"
+          ContinueOnError="true"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitShortSha" />
+    </Exec>
+    <PropertyGroup>
+      <SourceRevisionId Condition="'$(GitShortSha)' != ''">$(GitShortSha.Trim())</SourceRevisionId>
+    </PropertyGroup>
+    <Message Text="Publishing Version=$(Version) SourceRevisionId=$(SourceRevisionId)" Importance="high" />
+  </Target>
+
+  <Target Name="Publish" DependsOnTargets="Clean;GetGitRevision">
+    <MSBuild Projects="Configurator\Configurator.csproj"
+             Targets="Restore;Publish"
+             Properties="PublishProfile=FolderProfile;PublishDir=$(PublishDir);Configuration=$(PublishConfiguration);Version=$(Version);SourceRevisionId=$(SourceRevisionId)" />
+    <MSBuild Projects="service\RadioService.csproj"
+             Targets="Restore;Publish"
+             Properties="PublishProfile=FolderProfile;PublishDir=$(PublishDir);Configuration=$(PublishConfiguration);Version=$(Version);SourceRevisionId=$(SourceRevisionId)" />
+  </Target>
+
+  <Target Name="Package" DependsOnTargets="Publish">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;Compress-Archive -Path '$(PublishDir)*' -DestinationPath '$(ZipOutputPath)' -Force&quot;" />
+    <Message Text="Packaged: $(ZipOutputPath)" Importance="high" />
+  </Target>
+
+</Project>

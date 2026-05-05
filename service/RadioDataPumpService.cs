@@ -31,6 +31,13 @@ public class RouteConfiguration
     public string? intervalMs { get; set; } = "5000";
     public int BatchSize { get; set; } = 25;
 
+    // Per-command timeout in seconds (max time PG/SQL Server may take to
+    // start returning rows for a single SELECT). Default 300 covers slow
+    // first-run pulls against unindexed history tables; reduce if you
+    // want failures to surface faster on a healthy DB.
+    public int CommandTimeoutSeconds { get; set; } = 300;
+    public int ConnectionTimeoutSeconds { get; set; } = 30;
+
     public List<GundiConnection> gundiConnections { get; set; }
 
     public RouteConfiguration()
@@ -89,27 +96,31 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
 
                 IDataReader reader;
                 IDataWriter data_writer;
+                var connTimeout = routeConfiguration.ConnectionTimeoutSeconds;
+                var cmdTimeout  = routeConfiguration.CommandTimeoutSeconds;
                 if (routeConfiguration.DatabaseType.Type == RadioServiceConfiguration.ReaderType.KAS20) {
                     reader = new KAS20DataReader(routeConfiguration.Hostname, routeConfiguration.DatabaseName,
-                        routeConfiguration.Username, routeConfiguration.Password);
+                        routeConfiguration.Username, routeConfiguration.Password, connTimeout, cmdTimeout);
                 }
                 else if (routeConfiguration.DatabaseType.Type == RadioServiceConfiguration.ReaderType.SmartDispatchPlus)
                 {
                     reader = new SmartDispatchPlusV1Reader(
                         routeConfiguration.Hostname, routeConfiguration.DatabaseName,
-                        routeConfiguration.Username, routeConfiguration.Password, routeConfiguration.DatabaseSchema);
+                        routeConfiguration.Username, routeConfiguration.Password, routeConfiguration.DatabaseSchema,
+                        connTimeout, cmdTimeout);
                 }
                 else if (routeConfiguration.DatabaseType.Type == RadioServiceConfiguration.ReaderType.SmartOneDispatch)
                 {
                     reader = new SmartOneDispatchReader(
                         routeConfiguration.Hostname, routeConfiguration.DatabaseName,
-                        routeConfiguration.Username, routeConfiguration.Password, routeConfiguration.DatabaseSchema);
+                        routeConfiguration.Username, routeConfiguration.Password, routeConfiguration.DatabaseSchema,
+                        connTimeout, cmdTimeout);
                 }
                 else if (routeConfiguration.DatabaseType.Type == RadioServiceConfiguration.ReaderType.TrbonetPlus)
                 {
                     reader = new TrbonetPlusDataReader(
                         routeConfiguration.Hostname, routeConfiguration.DatabaseName,
-                        routeConfiguration.Username, routeConfiguration.Password);
+                        routeConfiguration.Username, routeConfiguration.Password, connTimeout, cmdTimeout);
                 }
                 else
                 {

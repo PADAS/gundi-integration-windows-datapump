@@ -17,8 +17,28 @@ using Polly;
 using Polly.CircuitBreaker;
 using Polly.Extensions.Http;
 using System.Net;
+using System.Reflection;
 using System.Threading;
 using System.Linq;
+
+internal static class VersionInfo
+{
+    // Built once at first use from the DataPump assembly's
+    // AssemblyInformationalVersionAttribute (MSBuild auto-derives this
+    // from <Version> in DataPump.csproj, optionally suffixed with
+    // +<SourceRevisionId> when that property is supplied at build time).
+    public static readonly string UserAgent = BuildUserAgent();
+
+    private static string BuildUserAgent()
+    {
+        var asm = typeof(VersionInfo).Assembly;
+        var version =
+            asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? asm.GetName().Version?.ToString()
+            ?? "unknown";
+        return $"Gundi Radio Service/{version}";
+    }
+}
 
 
 
@@ -30,9 +50,9 @@ public class KAS20DataReader : IDataReader
     private bool _disposed = false;
     private static Logger logger = LogManager.GetCurrentClassLogger();
 
-    public KAS20DataReader(string database_server, string database_name, string database_user, string database_password, int connectionTimeoutSeconds = 30)
+    public KAS20DataReader(string database_server, string database_name, string database_user, string database_password, int connectionTimeoutSeconds = 30, int commandTimeoutSeconds = 300)
     {
-        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;Connect Timeout={connectionTimeoutSeconds};";
+        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;Connect Timeout={connectionTimeoutSeconds};Command Timeout={commandTimeoutSeconds};";
         _stateHandler = new DataPump.StateHandler("state.json");
         _state = _stateHandler.LoadState();
         logger.Info($"Created KAS20DataReader. host: {database_server}, db: {database_name}, user: {database_user}");
@@ -176,9 +196,9 @@ public class TrbonetPlusDataReader : IDataReader
     private bool _disposed = false;
     private static Logger logger = LogManager.GetCurrentClassLogger();
 
-    public TrbonetPlusDataReader(string database_server, string database_name, string database_user, string database_password, int connectionTimeoutSeconds = 30)
+    public TrbonetPlusDataReader(string database_server, string database_name, string database_user, string database_password, int connectionTimeoutSeconds = 30, int commandTimeoutSeconds = 300)
     {
-        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;Connect Timeout={connectionTimeoutSeconds};";
+        _connectionString = $"Data Source={database_server};User ID={database_user};Password={database_password};Initial Catalog={database_name};TrustServerCertificate=True;Connect Timeout={connectionTimeoutSeconds};Command Timeout={commandTimeoutSeconds};";
         _stateHandler = new DataPump.StateHandler("state.json");
         _state = _stateHandler.LoadState();
         logger.Info($"Created TrbonetPlusDataReader. host: {database_server}, db: {database_name}, user: {database_user}");
@@ -321,11 +341,11 @@ public class SmartDispatchPlusV1Reader : IDataReader
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
 
-    public SmartDispatchPlusV1Reader(string database_server, string database_name, string database_user, string database_password, string database_schema, int connectionTimeoutSeconds = 30)
+    public SmartDispatchPlusV1Reader(string database_server, string database_name, string database_user, string database_password, string database_schema, int connectionTimeoutSeconds = 30, int commandTimeoutSeconds = 300)
     {
         _database_schema = database_schema;
         _database_name = database_name;
-        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;Timeout={connectionTimeoutSeconds};";
+        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;Timeout={connectionTimeoutSeconds};Command Timeout={commandTimeoutSeconds};";
         _stateHandler = new DataPump.StateHandler("state.json");
         _state = _stateHandler.LoadState();
         logger.Info($"Created {GetType().Name}. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}");
@@ -493,11 +513,11 @@ public class SmartOneDispatchReader : IDataReader
 
     private static Logger logger = LogManager.GetCurrentClassLogger();
 
-    public SmartOneDispatchReader(string database_server, string database_name, string database_user, string database_password, string database_schema, int connectionTimeoutSeconds = 30)
+    public SmartOneDispatchReader(string database_server, string database_name, string database_user, string database_password, string database_schema, int connectionTimeoutSeconds = 30, int commandTimeoutSeconds = 300)
     {
         _database_name = database_name;
         _database_schema = database_schema;
-        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;Timeout={connectionTimeoutSeconds};";
+        _connectionString = $"Host={database_server};Username={database_user};Password={database_password};Database={database_name};Search Path={database_schema},public;Timeout={connectionTimeoutSeconds};Command Timeout={commandTimeoutSeconds};";
         _stateHandler = new DataPump.StateHandler("state.json");
         _state = _stateHandler.LoadState();
         logger.Info($"Created SmartOneDispatchReader. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}");
@@ -760,7 +780,7 @@ public class GundiV2DataWriter : IDataWriter
         this._destination = destination;
         this._apikey = apikey;
         this._httpClient.DefaultRequestHeaders.Add("apikey", this._apikey);
-        this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.1");
+        this._httpClient.DefaultRequestHeaders.Add("User-Agent", VersionInfo.UserAgent);
         // Wrap retry policy with circuit breaker: CircuitBreaker(Retry(action))
         this._resiliencePolicy = Policy.WrapAsync(SharedCircuitBreaker, GetRetryPolicy(Random.Shared));
         this.matchingGroups = new HashSet<string>();
@@ -974,7 +994,7 @@ public class EarthRangerDataWriter : IDataWriter
         this._resiliencePolicy = Policy.WrapAsync(SharedCircuitBreaker, GetRetryPolicy(Random.Shared));
 
         this._httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", this._token);
-        this._httpClient.DefaultRequestHeaders.Add("User-Agent", "Gundi Radio Service/2.1");
+        this._httpClient.DefaultRequestHeaders.Add("User-Agent", VersionInfo.UserAgent);
     }
 
     public async Task<int> PostObservation(ISourceRecord record, CancellationToken cancellation = default)
