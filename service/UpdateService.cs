@@ -135,8 +135,15 @@ public class UpdateService
             // exit, and respawns.
             _manager.WaitExitThenApplyUpdates(_pendingUpdate);
 
-            _logger.Info("Update applied; signalling host to stop so the swap can complete.");
-            _lifetime.StopApplication();
+            // Don't stop the host immediately: the HTTP response carrying
+            // the success message hasn't been delivered yet. If we tear
+            // down Kestrel synchronously, the operator's browser sees the
+            // request fail and can't tell whether the update went through
+            // (and may click Apply again). Schedule the stop a couple
+            // seconds out, after the response has had time to flush over
+            // the SignalR circuit, then return immediately.
+            _logger.Info("Update applied; will signal host stop in 2s so the response can deliver first.");
+            _ = DelayThenStopAsync(_lifetime, TimeSpan.FromSeconds(2));
 
             return new UpdateApplyOutcome(true,
                 "Update downloaded. The service is restarting on the new version.");
@@ -146,6 +153,18 @@ public class UpdateService
             _logger.Warn(ex, "Apply failed.");
             return new UpdateApplyOutcome(false, $"{ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Fire-and-forget helper for ApplyAsync: waits the given delay, then
+    /// stops the host. Pulled out into a named method so the intent
+    /// (give the response time to deliver before tearing down) is clear
+    /// at the call site rather than buried in a Task.Delay continuation.
+    /// </summary>
+    private static async Task DelayThenStopAsync(IHostApplicationLifetime lifetime, TimeSpan delay)
+    {
+        await Task.Delay(delay);
+        lifetime.StopApplication();
     }
 }
 
