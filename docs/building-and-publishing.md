@@ -273,19 +273,31 @@ self-installing customers are the primary cohort.
   Re-enable the flags once that ships. License and Conclusion
   screens work and use our content already.
 
-- **The embedded web UI has no authentication.** It binds to
-  `127.0.0.1:8080` so the LAN can't reach it, but any local user
-  account on the box can browse to it and modify configuration,
-  trigger an update apply, or download the diagnostic bundle. For
-  the typical "one or two trusted operators on the customer's
-  dispatch PC" deployment shape this is acceptable, but it's a real
-  threat surface on multi-user boxes and should be addressed before
-  any customer rollout that doesn't fit that shape. Three plausible
-  solutions are under consideration: a file-based bearer token
-  (read-restricted to Administrators), Windows Negotiate auth with
-  an Administrators role check, or splitting the surface so only
-  read-only Status is anonymous. None of those landed in PR #11;
-  pick and implement before broad rollout.
+- **The embedded web UI has no authentication or origin checking.**
+  It binds to `127.0.0.1:8080` so the LAN can't reach it, but:
+  - **Any local user account** on the box can browse to it and modify
+    configuration, trigger an update apply, or download the
+    diagnostic bundle.
+  - **A malicious website in a logged-in user's browser** could open
+    a WebSocket to the Blazor SignalR hub (cross-site WebSocket
+    hijacking) since the hub does not validate the `Origin` header.
+    Same effective access as a local-user attack.
+
+  For the typical "one or two trusted operators on the customer's
+  dispatch PC, no untrusted browsing on the same box" deployment
+  shape this is acceptable, but it's a real threat surface and
+  should be addressed before any customer rollout that doesn't fit
+  that shape. The fix has two parts:
+
+  1. **Auth** — pick one of: a file-based bearer token (read-
+     restricted to Administrators), Windows Negotiate auth with an
+     Administrators role check, or splitting the surface so only
+     read-only Status is anonymous.
+  2. **Origin enforcement** — validate the `Origin` header on the
+     Blazor hub (and JSON endpoints) so a cross-site WebSocket can't
+     ride a logged-in user's session.
+
+  Neither landed in PR #11; both should ship together.
 
 ### Pre-customer-rollout checklist
 

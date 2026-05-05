@@ -9,8 +9,6 @@
     <!-- Match the existing namespace convention; without this, Razor codegen
          uses the assembly name (RadioService) and won't see service.* types. -->
     <RootNamespace>service</RootNamespace>
-    <!-- Web SDK normally publishes wwwroot etc., but we don't have any; keep it quiet. -->
-    <StaticWebAssetsEnabled>true</StaticWebAssetsEnabled>
     <!-- Diagnostic: persist source-generator output to disk so we can read
          the actual code Razor produced for our .razor files. Useful when
          debugging routing or rendering issues. Lives under

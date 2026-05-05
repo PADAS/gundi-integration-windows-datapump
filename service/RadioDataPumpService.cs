@@ -51,7 +51,6 @@ public class RadioDataPumpService : BackgroundService
 {
     private readonly ILogger<RadioDataPumpService> _logger;
     private static readonly Logger logger = LogManager.GetCurrentClassLogger();
-    private readonly IConfiguration _configuration;
     private readonly PumpStatus _status;
     private readonly ConfigService _configService;
     private readonly PumpController _controller;
@@ -64,11 +63,10 @@ public class RadioDataPumpService : BackgroundService
                 new SupportedReader { Name = "TRBOnet", Type = RadioServiceConfiguration.ReaderType.TrbonetPlus }
             };
 
-public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration c, PumpStatus status,
+public RadioDataPumpService(ILogger<RadioDataPumpService> logger, PumpStatus status,
                                 ConfigService configService, PumpController controller)
     {
         _logger = logger;
-        _configuration = c;
         _status = status;
         _configService = configService;
         _controller = controller;
