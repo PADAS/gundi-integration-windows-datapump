@@ -43,8 +43,8 @@ public class UpdateService
 
         // Feed URL is operator-overridable via "Updates:FeedUrl" in
         // appsettings.json. The default points at the canonical GCS
-        // bucket where publish-to-gcs.ps1 will eventually drop the
-        // Velopack release artifacts (RELEASES + .nupkg files).
+        // bucket where publish-velopack.ps1 drops the Velopack release
+        // artifacts (RELEASES + .nupkg + Setup.exe + .msi files).
         _feedUrl = config["Updates:FeedUrl"]?.Trim();
         if (string.IsNullOrWhiteSpace(_feedUrl))
         {

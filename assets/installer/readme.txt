@@ -19,18 +19,30 @@ After installation
   4. Click Save -- the service starts pumping immediately.
 
 File locations
-  Configuration:  C:\Program Files (x86)\GundiRadioService\
-                    current\appsettings.json
-  Logs:           C:\Program Files (x86)\GundiRadioService\
-                    current\radioservice.log
-  Service:        installed as "Gundi Radio Service" in Windows
-                    Service Manager (services.msc)
+  The installer drops the application files in a versioned subfolder
+  under the install root. The current version is always reachable via
+  the "current" subfolder. By default this is roughly:
+
+    <install root>\current\appsettings.json   (configuration)
+    <install root>\current\radioservice.log   (NLog output)
+    <install root>\current\state.json         (cursor)
+
+  The exact install root depends on Windows configuration; consult
+  Add/Remove Programs to find it, or check the service's binPath:
+
+    sc qc "Gundi Radio Service"
+
+  The Windows service is registered as "Gundi Radio Service" and
+  visible in services.msc.
 
 Updates
-  The service checks the public update feed and can apply updates
-  in place. Use the "Check for updates" button on the Status page,
-  or wait for the periodic background check.
+  Open the Status page in your browser (http://localhost:8080/) and
+  click "Check for updates". If a newer version is available, click
+  "Apply update" to download and install it. The service restarts
+  automatically on the new version. Updates are manual; there is
+  no automatic background check.
 
 Support
-  Use the "Send diagnostic bundle" button on the Status page to
-  package logs and sanitized configuration for your support team.
+  Use the "Download diagnostic bundle" button on the Status page to
+  package logs and sanitized configuration into a zip you can email
+  to your support team.

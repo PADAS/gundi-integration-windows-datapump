@@ -229,12 +229,14 @@ Customers should install via the `.msi`, never `Setup.exe`.
   and runs it (UAC prompt). The MSI drops the binaries to
   `C:\Program Files\Padas\Gundi Radio Service\` and (via the slice-3
   `OnAfterInstall` hook) registers and starts the Windows service.
-- **Subsequent updates**: the running service's `UpdateService` polls the
-  feed URL (configurable via `Updates:FeedUrl` in `appsettings.json`,
-  defaults to the GCS bucket above), notices a newer version's RELEASES
-  entry, downloads the matching delta nupkg, and applies it on next
-  service restart. The Status page exposes a "Check for updates" button
-  for manual triggering.
+- **Subsequent updates**: the running service's `UpdateService` is wired
+  to a feed URL (configurable via `Updates:FeedUrl` in `appsettings.json`,
+  defaults to the GCS bucket above). Updates are **manual** today — the
+  operator clicks "Check for updates" on the Status page; if a newer
+  release is available, "Apply update" downloads it and restarts the
+  service on the new version. There is no background polling timer. A
+  scheduled / automatic check is on the v3.x roadmap; not implemented in
+  this PR.
 
 ### Delta updates and bandwidth
 
