@@ -26,7 +26,13 @@ public class RouteConfiguration
     public string? Username { get; set; } = "";
     public string? Password { get; set; } = "";
     public string? DatabaseName { get; set; } = "";
-    public SupportedReader DatabaseType { get; set; }
+
+    // Nullable on purpose: the parameterless constructor leaves this
+    // unset (a service with no configured DB type yet is a real state
+    // -- the UI shows "Not configured. Open the web UI to set up the
+    // service."). Consumers must null-check.
+    public SupportedReader? DatabaseType { get; set; }
+
     public string? DatabaseSchema { get; set; } = "";
     public string? intervalMs { get; set; } = "5000";
     public int BatchSize { get; set; } = 25;
@@ -38,7 +44,12 @@ public class RouteConfiguration
     public int CommandTimeoutSeconds { get; set; } = 300;
     public int ConnectionTimeoutSeconds { get; set; } = 30;
 
-    public List<GundiConnection> gundiConnections { get; set; }
+    // Nullable because JsonSerializer.Deserialize will overwrite the
+    // ctor-initialized list with null if the JSON literally contains
+    // "gundiConnections": null. Existing consumers already use the
+    // `?? new()` pattern; declaring the property nullable makes the
+    // type system match runtime reality.
+    public List<GundiConnection>? gundiConnections { get; set; }
 
     public RouteConfiguration()
     {
