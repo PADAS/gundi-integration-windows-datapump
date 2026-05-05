@@ -273,6 +273,33 @@ self-installing customers are the primary cohort.
   Re-enable the flags once that ships. License and Conclusion
   screens work and use our content already.
 
+- **The embedded web UI has no authentication.** It binds to
+  `127.0.0.1:8080` so the LAN can't reach it, but any local user
+  account on the box can browse to it and modify configuration,
+  trigger an update apply, or download the diagnostic bundle. For
+  the typical "one or two trusted operators on the customer's
+  dispatch PC" deployment shape this is acceptable, but it's a real
+  threat surface on multi-user boxes and should be addressed before
+  any customer rollout that doesn't fit that shape. Three plausible
+  solutions are under consideration: a file-based bearer token
+  (read-restricted to Administrators), Windows Negotiate auth with
+  an Administrators role check, or splitting the surface so only
+  read-only Status is anonymous. None of those landed in PR #11;
+  pick and implement before broad rollout.
+
+### Pre-customer-rollout checklist
+
+Beyond the limitations above, the following should be verified before
+distributing to a real customer:
+
+- The `assets/installer/LICENSE` content reflects Padas's intended
+  license terms. The current Apache 2.0 was placeholder content; the
+  MSI displays it as the click-through "I agree" page, so whatever
+  is there is what the customer accepts.
+- Code-signing certificate is wired into `publish-velopack.ps1`
+  (`-SignParams "..."`). Without it, customers see a SmartScreen
+  warning on first install.
+
 ---
 
 ## End-to-end release
