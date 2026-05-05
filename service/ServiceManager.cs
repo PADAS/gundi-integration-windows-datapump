@@ -35,10 +35,15 @@ public static class ServiceManager
     {
         try
         {
+            // Quote the exe path so SCM treats it as a single token. Most
+            // installs land in "C:\Program Files\..." or
+            // "C:\Program Files (x86)\..." which contain spaces; without
+            // the quotes, sc.exe leaves the unquoted path in registry and
+            // the next service start fails with "file not found".
             var create = await Cli.Wrap("sc")
                 .WithArguments(new[] {
                     "create", ServiceName,
-                    $"binPath={exePath}",
+                    $"binPath= \"{exePath}\"",
                     "start=auto",
                     $"displayname={ServiceName}"
                 })
@@ -65,7 +70,7 @@ public static class ServiceManager
                 var config = await Cli.Wrap("sc")
                     .WithArguments(new[] {
                         "config", ServiceName,
-                        $"binPath={exePath}",
+                        $"binPath= \"{exePath}\"",
                         "start=auto",
                         $"displayname={ServiceName}"
                     })

@@ -88,7 +88,13 @@ public class LogService
         }
 
         fs.Position = readFrom;
-        var bytes = new byte[fileLen - readFrom];
+        // (long)fileLen - readFrom is bounded above by maxBytes (an int),
+        // because readFrom = max(0, fileLen - maxBytes). So the cast is
+        // safe -- but make it explicit and clamp to maxBytes anyway, both
+        // for compile-time clarity (array lengths must be int) and to
+        // guard against any future refactor that loosens the readFrom math.
+        int bytesToRead = (int)Math.Min(maxBytes, fileLen - readFrom);
+        var bytes = new byte[bytesToRead];
         int total = 0;
         while (total < bytes.Length)
         {
