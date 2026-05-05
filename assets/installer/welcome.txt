@@ -1,0 +1,12 @@
+Welcome to the Gundi Radio Service installer.
+
+This installer registers the Gundi Radio Service as a Windows
+Service that reads radio location data from your local dispatch
+software's database and forwards it to your configured Gundi or
+EarthRanger destination.
+
+The service runs in the background, starts automatically with
+Windows, and provides a local web interface at http://localhost:8080/
+for status, configuration, and updates.
+
+Click Next to continue.

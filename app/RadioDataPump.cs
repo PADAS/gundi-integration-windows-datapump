@@ -60,7 +60,24 @@ namespace DataPump
                     // Reset error counter on successful read cycle
                     consecutiveDbErrors = 0;
 
-                    await Task.Delay(this._intervalMs, cancellationToken).ContinueWith(_ => logger.Debug("Tick."));
+                    // Pause between read cycles. (Previously logged "Tick."
+                    // here every cycle as a heartbeat; replaced by
+                    // HeartbeatService, which only logs during idle
+                    // periods and avoids the per-cycle log spam.)
+                    //
+                    // Swallow OperationCanceledException here on purpose:
+                    // when the stopping token fires during this delay, we
+                    // want the outer while-loop's token check to handle it
+                    // and return cleanly. Letting the exception propagate
+                    // would route through the surrounding catch which
+                    // re-throws — turning a normal shutdown into a thrown
+                    // exception out of pump.Run, which the tests (and the
+                    // production worker's outer loop) treat as a fault.
+                    try
+                    {
+                        await Task.Delay(this._intervalMs, cancellationToken);
+                    }
+                    catch (OperationCanceledException) { }
                 }
                 catch (OperationCanceledException)
                 {

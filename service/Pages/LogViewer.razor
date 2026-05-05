@@ -1,0 +1,191 @@
+@page "/logs"
+@inject LogService LogSvc
+@implements IDisposable
+
+<PageTitle>Logs - Gundi Radio Service</PageTitle>
+
+<div class="card">
+    <div class="logs-header">
+        <h2>Logs</h2>
+        <div class="logs-controls">
+            <label>
+                Level
+                <select @bind="_minLevel" @bind:after="Refresh">
+                    <option value="">All</option>
+                    <option value="Info">Info+</option>
+                    <option value="Warn">Warn+</option>
+                    <option value="Error">Error only</option>
+                </select>
+            </label>
+            <label>
+                Lines
+                <select @bind="_lineCount" @bind:after="Refresh">
+                    <option value="200">200</option>
+                    <option value="500">500</option>
+                    <option value="1000">1000</option>
+                </select>
+            </label>
+            <button type="button" @onclick="Refresh" disabled="@_loading">
+                @(_loading ? "Loading..." : "Refresh")
+            </button>
+            <label class="auto-refresh-toggle">
+                <input type="checkbox" @bind="_autoRefresh" @bind:after="OnAutoRefreshChanged" />
+                Auto-refresh (2s)
+            </label>
+        </div>
+    </div>
+
+    <p class="hint">
+        Source: <code>@LogSvc.LogFilePath</code>
+        @if (!LogSvc.LogFileExists)
+        {
+            <span class="error-msg" style="margin-left: 0.5rem;">file not found</span>
+        }
+    </p>
+
+    @if (_lines.Count == 0)
+    {
+        <p style="color: #888; font-style: italic; margin-top: 1rem;">
+            @(LogSvc.LogFileExists
+                ? "No lines match the current filter."
+                : "Log file does not exist yet. Once the service writes its first entry, it will appear here.")
+        </p>
+    }
+    else
+    {
+        <pre class="log-pre">@foreach (var line in _lines)
+{
+            <span class="log-line @ClassForLine(line)">@line</span>
+}</pre>
+        <p class="hint" style="margin-top: 0.5rem;">
+            @LineCountSummary()
+        </p>
+    }
+</div>
+
+<style>
+    .logs-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.5rem; }
+    .logs-header h2 { margin: 0; }
+    .logs-controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+    .logs-controls label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; color: #555; }
+    .logs-controls select { padding: 0.3rem 0.5rem; border: 1px solid #d2d2d7; border-radius: 4px; font-size: 0.9rem; }
+    .auto-refresh-toggle { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; user-select: none; }
+    .auto-refresh-toggle input[type=checkbox] { cursor: pointer; }
+    .log-pre { background: #1d1d1f; color: #e5e5e7; padding: 1rem; border-radius: 6px; overflow-x: auto; max-height: 70vh; font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; line-height: 1.5; margin: 0; }
+    .log-line { display: block; white-space: pre-wrap; word-break: break-word; }
+    .log-line.warn  { color: #fbbf24; }
+    .log-line.error { color: #f87171; }
+    .log-line.fatal { color: #fca5a5; font-weight: bold; }
+    .log-line.debug { color: #9ca3af; }
+    .log-line.trace { color: #6b7280; }
+    code { background: #f5f5f7; padding: 0 0.3rem; border-radius: 3px; font-size: 0.9em; }
+</style>
+
+@code {
+    private List<string> _lines = new();
+    private string _minLevel = "";   // "" / Info / Warn / Error
+    private int _lineCount = 500;
+    private bool _loading;
+    private bool _autoRefresh;
+    private System.Threading.Timer? _autoRefreshTimer;
+
+    protected override void OnInitialized() => Refresh();
+
+    private void Refresh()
+    {
+        _loading = true;
+        try
+        {
+            LogService.LogLevel? min = _minLevel switch
+            {
+                "Info"  => LogService.LogLevel.Info,
+                "Warn"  => LogService.LogLevel.Warn,
+                "Error" => LogService.LogLevel.Error,
+                _       => null,
+            };
+            _lines = LogSvc.ReadTail(_lineCount, min).ToList();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    // Guards the timer callback against reentrancy. System.Threading.Timer
+    // does NOT serialize its callbacks: if one tick is still running when
+    // the next would fire (e.g., the disk read takes longer than the 2s
+    // period on a slow box), they overlap and race on _lines / _loading.
+    // 0 = idle, 1 = a tick is in progress.
+    private int _autoRefreshInFlight;
+
+    private void OnAutoRefreshChanged()
+    {
+        if (_autoRefresh)
+        {
+            // 2-second cadence is fast enough to feel "live" but slow
+            // enough to avoid flooding the rendering pipeline on a noisy
+            // log. Each tick reads tail-from-disk; cost is normally
+            // negligible but we still guard reentrancy in case it isn't.
+            _autoRefreshTimer = new System.Threading.Timer(
+                _ =>
+                {
+                    if (Interlocked.CompareExchange(ref _autoRefreshInFlight, 1, 0) != 0)
+                    {
+                        // A previous tick hasn't finished yet. Skip this
+                        // one; the next period will try again.
+                        return;
+                    }
+                    try
+                    {
+                        InvokeAsync(() => { Refresh(); StateHasChanged(); });
+                    }
+                    finally
+                    {
+                        // InvokeAsync returns immediately (it's a fire-and-
+                        // forget dispatch); the actual UI work happens on
+                        // the dispatcher thread. Resetting the flag here
+                        // means we serialize *dispatches*, not *renders* --
+                        // which is what we want, since the dispatcher
+                        // itself serialises renders.
+                        Interlocked.Exchange(ref _autoRefreshInFlight, 0);
+                    }
+                },
+                state: null,
+                dueTime: TimeSpan.FromSeconds(2),
+                period: TimeSpan.FromSeconds(2));
+        }
+        else
+        {
+            _autoRefreshTimer?.Dispose();
+            _autoRefreshTimer = null;
+        }
+    }
+
+    public void Dispose()
+    {
+        _autoRefreshTimer?.Dispose();
+    }
+
+    /// <summary>"Showing N lines [at LEVEL or higher]." — computed in C# for clarity.</summary>
+    private string LineCountSummary()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("Showing ").Append(_lines.Count).Append(" line");
+        if (_lines.Count != 1) sb.Append('s');
+        if (_minLevel.Length > 0) sb.Append(" at ").Append(_minLevel).Append(" or higher");
+        sb.Append('.');
+        return sb.ToString();
+    }
+
+    /// <summary>CSS class for a log line based on its embedded NLog level token.</summary>
+    private static string ClassForLine(string line)
+    {
+        var lower = line.ToLowerInvariant();
+        if (lower.Contains(" fatal ")) return "fatal";
+        if (lower.Contains(" error ")) return "error";
+        if (lower.Contains(" warn "))  return "warn";
+        if (lower.Contains(" debug ")) return "debug";
+        if (lower.Contains(" trace ")) return "trace";
+        return "";
+    }
+}

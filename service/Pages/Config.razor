@@ -1,0 +1,762 @@
+@page "/config"
+@using System.ComponentModel.DataAnnotations
+@inject ConfigService ConfigSvc
+@inject PumpController Controller
+
+<PageTitle>Configuration — Gundi Radio Service</PageTitle>
+
+<div class="card">
+    <h2>Database connection</h2>
+    <EditForm Model="@_form" OnValidSubmit="OnSave">
+        <DataAnnotationsValidator />
+
+        <div class="field">
+            <label>Reader type</label>
+            <InputSelect @bind-Value="_form.ReaderTypeValue" class="input">
+                <option value="-1">— select —</option>
+                @foreach (var r in service.RadioDataPumpService.supportedReaders)
+                {
+                    <option value="@((int)r.Type)">@r.Name</option>
+                }
+            </InputSelect>
+            <ValidationMessage For="@(() => _form.ReaderTypeValue)" />
+        </div>
+
+        <div class="field">
+            <label>Hostname</label>
+            <InputText @bind-Value="_form.Hostname" class="input" placeholder="localhost" />
+            <ValidationMessage For="@(() => _form.Hostname)" />
+        </div>
+
+        <div class="field">
+            <label>Database name</label>
+            <InputText @bind-Value="_form.DatabaseName" class="input" />
+            <ValidationMessage For="@(() => _form.DatabaseName)" />
+        </div>
+
+        <div class="field">
+            <label>Username</label>
+            <InputText @bind-Value="_form.Username" class="input" />
+            <ValidationMessage For="@(() => _form.Username)" />
+        </div>
+
+        <div class="field">
+            <label>Password</label>
+            <InputText @bind-Value="_form.NewPassword" class="input" type="password"
+                       placeholder="@(_passwordSet ? "(unchanged)" : "")" />
+            <small class="hint">Leave blank to keep the existing password.</small>
+        </div>
+
+        <div class="field">
+            <label>Schema <small class="hint">(PostgreSQL readers only)</small></label>
+            <InputText @bind-Value="_form.DatabaseSchema" class="input" placeholder="public" />
+        </div>
+
+        <h3 class="section-divider">Pump tuning</h3>
+
+        <div class="field-row">
+            <div class="field">
+                <label>Batch size</label>
+                <InputNumber @bind-Value="_form.BatchSize" class="input" />
+            </div>
+            <div class="field">
+                <label>Interval (ms)</label>
+                <InputText @bind-Value="_form.IntervalMs" class="input" />
+            </div>
+        </div>
+
+        <div class="field-row">
+            <div class="field">
+                <label>Connection timeout (s)</label>
+                <InputNumber @bind-Value="_form.ConnectionTimeoutSeconds" class="input" />
+            </div>
+            <div class="field">
+                <label>Command timeout (s)</label>
+                <InputNumber @bind-Value="_form.CommandTimeoutSeconds" class="input" />
+            </div>
+        </div>
+
+        <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <button type="button" class="secondary" @onclick="OnTestConnection" disabled="@_testing">
+                @(_testing ? "Testing…" : "Test connection")
+            </button>
+            <button type="submit">Save</button>
+            @if (_savedMessage is not null)
+            {
+                <span class="saved-msg">@_savedMessage</span>
+            }
+            @if (_testResult is not null)
+            {
+                <span class="@(_testResult.Success ? "saved-msg" : "error-msg")">
+                    @(_testResult.Success ? "✓" : "✗") @_testResult.Message
+                </span>
+            }
+        </div>
+    </EditForm>
+</div>
+
+<div class="card">
+    <h2>Gundi destinations</h2>
+    @if (_destinations.Count == 0)
+    {
+        <p style="color: #888; font-style: italic;">
+            No destinations configured. Click "Add destination" to add one.
+        </p>
+    }
+    else
+    {
+        @for (int i = 0; i < _destinations.Count; i++)
+        {
+            // Capture for the lambda closure on Remove — for-loop variable
+            // is shared across iterations otherwise.
+            int idx = i;
+            var dest = _destinations[idx];
+            <div class="destination-card">
+                <div class="destination-header">
+                    <h3>@(string.IsNullOrWhiteSpace(dest.ConnectionName) ? "(unnamed)" : dest.ConnectionName)</h3>
+                    <button type="button" class="link-danger" @onclick="() => OnRemoveDestination(idx)">
+                        Remove
+                    </button>
+                </div>
+
+                <div class="field">
+                    <label>Name</label>
+                    <InputText @bind-Value="dest.ConnectionName" class="input" />
+                </div>
+
+                <div class="field">
+                    <label>URL</label>
+                    <InputText @bind-Value="dest.Destination" class="input" placeholder="https://..." />
+                </div>
+
+                <div class="field">
+                    <label>API key</label>
+                    <InputText @bind-Value="dest.NewApiKey" class="input" type="password"
+                               placeholder="@(dest.ApiKeySet ? "(unchanged)" : "")" />
+                    <div class="api-key-actions">
+                        <small class="hint">
+                            @(dest.ApiKeySet ? "Leave blank to keep the existing API key." : "Required for new destinations.")
+                        </small>
+                        <button type="button" class="link-secondary"
+                                @onclick="() => OnTestApiKey(idx)"
+                                disabled="@dest.Testing">
+                            @(dest.Testing ? "Testing…" : "Test API key")
+                        </button>
+                    </div>
+                    @if (dest.LastTestResult is { } tr)
+                    {
+                        <span class="@(tr.Success ? "saved-msg" : "error-msg")" style="margin-top: 0.5rem; display: inline-block;">
+                            @(tr.Success ? "✓" : "✗") @tr.Message
+                        </span>
+                    }
+                </div>
+
+                <div class="field">
+                    <label class="checkbox-label">
+                        <InputCheckbox @bind-Value="dest.SendEverything" />
+                        Send all observations to this destination (ignore group filters)
+                    </label>
+                </div>
+
+                <div class="aliases-section">
+                    <div class="aliases-header">
+                        <h4>Group aliases (@dest.GroupAliases.Count)</h4>
+                        @if (dest.SendEverything)
+                        {
+                            <small class="hint">Ignored — "send everything" is on.</small>
+                        }
+                    </div>
+
+                    @for (int j = 0; j < dest.GroupAliases.Count; j++)
+                    {
+                        int aliasIdx = j;
+                        var alias = dest.GroupAliases[aliasIdx];
+                        <div class="alias-row">
+                            <InputText @bind-Value="alias.Guid" placeholder="GUID" class="input" />
+                            <InputText @bind-Value="alias.Alias" placeholder="Display name" class="input" />
+                            <button type="button" class="link-danger" title="Remove this alias"
+                                    @onclick="() => OnRemoveAlias(idx, aliasIdx)">×</button>
+                        </div>
+                    }
+
+                    <div class="aliases-actions">
+                        <button type="button" class="link-secondary" @onclick="() => OnAddAlias(idx)">
+                            + Add manually
+                        </button>
+                        @if (_pickerOpenForDest != idx)
+                        {
+                            <button type="button" class="link-secondary"
+                                    @onclick="() => OnOpenPicker(idx)">
+                                Pick from database…
+                            </button>
+                        }
+                    </div>
+
+                    @if (_pickerOpenForDest == idx)
+                    {
+                        <div class="alias-picker">
+                            <div class="picker-header">
+                                <strong>Available groups from source database</strong>
+                                <button type="button" class="link-secondary" @onclick="OnClosePicker">Close</button>
+                            </div>
+                            @if (_fetchingAliases)
+                            {
+                                <p class="hint">Fetching…</p>
+                            }
+                            else if (_aliasFetchError is not null)
+                            {
+                                <p class="error-msg">@_aliasFetchError</p>
+                            }
+                            else if (_availableAliases is { Count: > 0 } available)
+                            {
+                                <ul class="picker-list">
+                                    @foreach (var avail in available)
+                                    {
+                                        var copy = avail; // capture for closure
+                                        var picked = IsAliasPicked(idx, copy);
+                                        <li>
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" checked="@picked"
+                                                       @onchange="() => OnTogglePickedAlias(idx, copy)" />
+                                                <span class="alias-name">@avail.alias</span>
+                                                <small class="alias-guid-hint">@avail.guid</small>
+                                            </label>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                            else
+                            {
+                                <p class="hint">No group aliases found in the source database.</p>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+
+    <button type="button" class="secondary" @onclick="OnAddDestination" style="margin-top: 0.75rem;">
+        + Add destination
+    </button>
+
+    @if (_destinationErrors.Count > 0)
+    {
+        <div class="error-list">
+            @foreach (var err in _destinationErrors)
+            {
+                <div class="error-msg">@err</div>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .field { margin-bottom: 1rem; }
+    .field label { display: block; font-size: 0.9rem; color: #555; margin-bottom: 0.25rem; }
+    .field-row { display: flex; gap: 1rem; }
+    .field-row .field { flex: 1; }
+    .input { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d2d2d7; border-radius: 6px; font-size: 1rem; box-sizing: border-box; }
+    .input:focus { outline: none; border-color: #0071e3; }
+    .hint { color: #888; font-size: 0.85rem; font-weight: normal; }
+    .section-divider { font-size: 1rem; color: #555; font-weight: 500; margin: 1.5rem 0 0.75rem; padding-top: 1rem; border-top: 1px solid #eee; }
+    .saved-msg { color: #155724; background: #d4edda; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.9rem; }
+    .error-msg { color: #721c24; background: #f8d7da; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.9rem; }
+    button.secondary { background: white; color: #1d1d1f; border: 1px solid #d2d2d7; }
+    button.secondary:hover { background: #f5f5f7; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .destination-card { border: 1px solid #e5e5e7; border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; background: #fafafa; }
+    .destination-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+    .destination-header h3 { margin: 0; font-size: 1rem; font-weight: 500; }
+    .checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal; }
+    .link-danger { background: none; color: #b00020; border: none; padding: 0.25rem 0.5rem; cursor: pointer; font-size: 0.9rem; }
+    .link-danger:hover { background: #fdf0f3; border-radius: 4px; }
+    .error-list { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+    .validation-message { color: #b00020; font-size: 0.85rem; margin-top: 0.25rem; }
+    .aliases-section { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed #ddd; }
+    .aliases-header { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+    .aliases-header h4 { margin: 0; font-size: 0.9rem; font-weight: 500; color: #555; }
+    .alias-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.5rem; margin-bottom: 0.4rem; align-items: center; }
+    .alias-row .input { padding: 0.35rem 0.6rem; font-size: 0.9rem; }
+    .alias-row .link-danger { font-size: 1.2rem; line-height: 1; padding: 0.1rem 0.5rem; }
+    .link-secondary { background: none; color: #0071e3; border: none; padding: 0.25rem 0.5rem; cursor: pointer; font-size: 0.9rem; }
+    .link-secondary:hover { background: #f0f7ff; border-radius: 4px; }
+    .aliases-actions { display: flex; gap: 0.75rem; margin-top: 0.5rem; flex-wrap: wrap; }
+    .api-key-actions { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-top: 0.25rem; flex-wrap: wrap; }
+    .alias-picker { margin-top: 0.75rem; padding: 0.75rem; background: white; border: 1px solid #d2d2d7; border-radius: 6px; }
+    .picker-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .picker-header strong { font-size: 0.9rem; color: #555; }
+    .picker-list { list-style: none; padding: 0; margin: 0; max-height: 300px; overflow-y: auto; }
+    .picker-list li { padding: 0.35rem 0; border-bottom: 1px solid #f0f0f0; }
+    .picker-list li:last-child { border-bottom: none; }
+    .alias-name { font-weight: 500; }
+    .alias-guid-hint { color: #888; font-family: ui-monospace, Consolas, monospace; font-size: 0.8rem; margin-left: 0.5rem; }
+</style>
+
+@code {
+    private FormModel _form = new();
+    private List<DestinationFormModel> _destinations = new();
+    private List<string> _destinationErrors = new();
+    private string? _savedMessage;
+    private bool _passwordSet;
+    private bool _testing;
+    private TestResult? _testResult;
+
+    // Group-alias picker state. Page-scoped because all destinations share
+    // the same source database — no point fetching per-destination.
+    private List<GroupAlias>? _availableAliases;   // null = not yet fetched
+    private string? _aliasFetchError;
+    private bool _fetchingAliases;
+    private int? _pickerOpenForDest;               // index of the destination whose picker is open
+
+    protected override void OnInitialized()
+    {
+        var current = ConfigSvc.LoadRouteConfig();
+        _form = FormModel.From(current);
+        _passwordSet = !string.IsNullOrEmpty(current.Password);
+        _destinations = (current.gundiConnections ?? new())
+            .Select(DestinationFormModel.From)
+            .ToList();
+    }
+
+    private void OnAddDestination()
+    {
+        _destinations.Add(new DestinationFormModel());
+        _destinationErrors.Clear();
+        _savedMessage = null;
+    }
+
+    private void OnRemoveDestination(int index)
+    {
+        if (index < 0 || index >= _destinations.Count) return;
+        _destinations.RemoveAt(index);
+        _destinationErrors.Clear();
+        _savedMessage = null;
+    }
+
+    private void OnAddAlias(int destIdx)
+    {
+        if (destIdx < 0 || destIdx >= _destinations.Count) return;
+        _destinations[destIdx].GroupAliases.Add(new GroupAliasFormModel());
+        _destinationErrors.Clear();
+        _savedMessage = null;
+    }
+
+    private void OnRemoveAlias(int destIdx, int aliasIdx)
+    {
+        if (destIdx < 0 || destIdx >= _destinations.Count) return;
+        var aliases = _destinations[destIdx].GroupAliases;
+        if (aliasIdx < 0 || aliasIdx >= aliases.Count) return;
+        aliases.RemoveAt(aliasIdx);
+        _destinationErrors.Clear();
+        _savedMessage = null;
+    }
+
+    private async Task OnTestApiKey(int destIdx)
+    {
+        if (destIdx < 0 || destIdx >= _destinations.Count) return;
+        var dest = _destinations[destIdx];
+
+        // Validate the in-form fields just enough to attempt a probe; the
+        // probe will surface auth/network errors with friendlier messages
+        // than letting it fail downstream.
+        if (string.IsNullOrWhiteSpace(dest.Destination))
+        {
+            dest.LastTestResult = new TestResult(false, "Enter a destination URL first.");
+            return;
+        }
+        var keyToProbe = string.IsNullOrEmpty(dest.NewApiKey) ? (dest.ExistingApiKey ?? "") : dest.NewApiKey;
+        if (string.IsNullOrEmpty(keyToProbe))
+        {
+            dest.LastTestResult = new TestResult(false, "Enter an API key to test.");
+            return;
+        }
+
+        dest.Testing = true;
+        dest.LastTestResult = null;
+        _savedMessage = null;
+        try
+        {
+            // Off-thread: TestConnection makes a real HTTPS call.
+            dest.LastTestResult = await Task.Run(async () =>
+            {
+                var probe = new GundiV2DataWriter(dest.Destination!, keyToProbe);
+                return await probe.TestConnection();
+            });
+        }
+        catch (Exception ex)
+        {
+            dest.LastTestResult = new TestResult(false, $"{ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            dest.Testing = false;
+        }
+    }
+
+    private async Task OnOpenPicker(int destIdx)
+    {
+        // Transitioning from "no picker open" to "open" means the user
+        // may have edited DB form fields since the last fetch — drop the
+        // cache so we re-query against the current values. Switching the
+        // open picker from one destination to another reuses the cache,
+        // since the source DB is the same for the whole page.
+        if (_pickerOpenForDest is null)
+        {
+            _availableAliases = null;
+            _aliasFetchError = null;
+        }
+        _pickerOpenForDest = destIdx;
+        await EnsureAliasesFetched();
+    }
+
+    private void OnClosePicker()
+    {
+        _pickerOpenForDest = null;
+    }
+
+    private void OnTogglePickedAlias(int destIdx, GroupAlias avail)
+    {
+        if (destIdx < 0 || destIdx >= _destinations.Count) return;
+        var dest = _destinations[destIdx];
+        var existing = dest.GroupAliases.FirstOrDefault(a => a.Guid == avail.guid);
+        if (existing is not null)
+        {
+            dest.GroupAliases.Remove(existing);
+        }
+        else
+        {
+            dest.GroupAliases.Add(new GroupAliasFormModel
+            {
+                Guid = avail.guid,
+                Alias = avail.alias,
+            });
+        }
+        _destinationErrors.Clear();
+        _savedMessage = null;
+    }
+
+    private bool IsAliasPicked(int destIdx, GroupAlias avail)
+    {
+        if (destIdx < 0 || destIdx >= _destinations.Count) return false;
+        return _destinations[destIdx].GroupAliases.Any(a => a.Guid == avail.guid);
+    }
+
+    /// <summary>
+    /// Fetches available group aliases from the configured source DB and
+    /// caches them at page scope. Uses the in-form DB values (same merge
+    /// pattern as Test Connection) so the user can pick before saving.
+    /// Idempotent — does nothing if aliases were already fetched.
+    /// </summary>
+    private async Task EnsureAliasesFetched()
+    {
+        if (_availableAliases is not null) return;
+        if (_form.ReaderTypeValue < 0)
+        {
+            _aliasFetchError = "Pick a reader type first.";
+            return;
+        }
+
+        _fetchingAliases = true;
+        _aliasFetchError = null;
+        try
+        {
+            var existing = ConfigSvc.LoadRouteConfig();
+            var probeConfig = _form.ToRouteConfig(existingPassword: existing.Password);
+
+            // Off-thread: GetGroupAliases opens a real DB connection.
+            _availableAliases = await Task.Run(() =>
+            {
+                using var reader = service.RadioDataPumpService.CreateReader(probeConfig);
+                return reader.GetGroupAliases();
+            });
+        }
+        catch (Exception ex)
+        {
+            _aliasFetchError = $"{ex.GetType().Name}: {ex.Message}";
+            _availableAliases = null;
+        }
+        finally
+        {
+            _fetchingAliases = false;
+        }
+    }
+
+    private void OnSave()
+    {
+        // The DataAnnotationsValidator already passed for the DB form (this
+        // is OnValidSubmit). Validate destinations manually — each one's
+        // editable fields aren't part of _form, so they aren't covered.
+        _destinationErrors = ValidateDestinations(_destinations);
+        if (_destinationErrors.Count > 0)
+        {
+            _savedMessage = null;
+            return;
+        }
+
+        var existing = ConfigSvc.LoadRouteConfig();
+        RouteConfiguration updated;
+        try
+        {
+            updated = _form.ToRouteConfig(existingPassword: existing.Password);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // ToRouteConfig throws on form-level invariants we don't cover
+            // with DataAnnotations -- e.g. an unknown ReaderTypeValue from a
+            // tampered request. Surface the message via the same error
+            // channel the destinations use; the operator can correct and
+            // re-save.
+            _destinationErrors = new List<string> { ex.Message };
+            _savedMessage = null;
+            return;
+        }
+        updated.gundiConnections = _destinations.Select(d => d.ToConnection()).ToList();
+
+        ConfigSvc.SaveRouteConfig(updated);
+        Controller.RequestReload();
+
+        // Acknowledge the saved API keys so the UI shows "(unchanged)" on
+        // next edit instead of forcing the user to re-enter them.
+        foreach (var d in _destinations) d.AcceptApiKey();
+
+        // The saved DB may differ from what we cached aliases against.
+        // Invalidate so the next picker open re-fetches.
+        _availableAliases = null;
+        _aliasFetchError = null;
+
+        _passwordSet = !string.IsNullOrEmpty(updated.Password);
+        _form.NewPassword = "";
+        _testResult = null;
+        _savedMessage = "Saved. Pump reloading with the new settings.";
+    }
+
+    private static List<string> ValidateDestinations(List<DestinationFormModel> dests)
+    {
+        var errs = new List<string>();
+        for (int i = 0; i < dests.Count; i++)
+        {
+            var d = dests[i];
+            var label = string.IsNullOrWhiteSpace(d.ConnectionName)
+                ? $"Destination #{i + 1}"
+                : d.ConnectionName;
+            if (string.IsNullOrWhiteSpace(d.ConnectionName))
+                errs.Add($"{label}: name is required.");
+            if (string.IsNullOrWhiteSpace(d.Destination))
+                errs.Add($"{label}: URL is required.");
+            if (!d.ApiKeySet && string.IsNullOrWhiteSpace(d.NewApiKey))
+                errs.Add($"{label}: API key is required.");
+
+            // Per-alias validation. Skip the whole block when the
+            // destination is in "send everything" mode — aliases are
+            // ignored at runtime, so blank rows are harmless and we
+            // shouldn't make the user clean them up before saving.
+            if (!d.SendEverything)
+            {
+                for (int j = 0; j < d.GroupAliases.Count; j++)
+                {
+                    var a = d.GroupAliases[j];
+                    if (string.IsNullOrWhiteSpace(a.Guid))
+                        errs.Add($"{label} alias #{j + 1}: GUID is required.");
+                    if (string.IsNullOrWhiteSpace(a.Alias))
+                        errs.Add($"{label} alias #{j + 1}: name is required.");
+                }
+
+                // GroupAlias.Equals() is by guid — a duplicate guid in this
+                // list would silently overwrite the prior at runtime. Catch
+                // it here with a clear error instead.
+                var dupes = d.GroupAliases
+                    .Where(a => !string.IsNullOrWhiteSpace(a.Guid))
+                    .GroupBy(a => a.Guid)
+                    .Where(g => g.Count() > 1)
+                    .Select(g => g.Key);
+                foreach (var dupe in dupes)
+                    errs.Add($"{label}: GUID '{dupe}' appears on more than one alias.");
+            }
+        }
+        return errs;
+    }
+
+    private async Task OnTestConnection()
+    {
+        _savedMessage = null;
+        _testResult = null;
+
+        // Don't bother attempting a connection if we know it'll fail on
+        // a missing reader type — the underlying factory throws and the
+        // user gets a confusing exception instead of a clean message.
+        if (_form.ReaderTypeValue < 0)
+        {
+            _testResult = new TestResult(false, "Pick a reader type first.");
+            return;
+        }
+
+        _testing = true;
+        try
+        {
+            var existing = ConfigSvc.LoadRouteConfig();
+            var probeConfig = _form.ToRouteConfig(existingPassword: existing.Password);
+
+            // TestConnection() opens a real connection on the calling thread.
+            // Off-load to the threadpool so the SignalR render thread stays
+            // responsive while the connect attempt is in flight.
+            _testResult = await Task.Run(() =>
+            {
+                using var reader = service.RadioDataPumpService.CreateReader(probeConfig);
+                return reader.TestConnection();
+            });
+        }
+        catch (Exception ex)
+        {
+            _testResult = new TestResult(false, $"{ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+
+    /// <summary>
+    /// Form-shaped projection of a single GundiConnection. Tracks the
+    /// existing API key separately from what the user types, so the
+    /// "leave blank to keep" pattern works the same way as the DB
+    /// password. Group aliases pass through untouched in this slice —
+    /// editing them is a follow-up.
+    /// </summary>
+    private class DestinationFormModel
+    {
+        public string? ConnectionName { get; set; }
+        public string? Destination { get; set; }
+        public string? NewApiKey { get; set; } = "";
+        public bool SendEverything { get; set; }
+        public List<GroupAliasFormModel> GroupAliases { get; set; } = new();
+
+        // Public so it can be set in object initializers; this is a private
+        // nested class so the wider visibility is irrelevant.
+        public string? ExistingApiKey { get; set; }
+        public bool ApiKeySet => !string.IsNullOrEmpty(ExistingApiKey);
+
+        // Transient UI state — not round-tripped through GundiConnection.
+        public bool Testing { get; set; }
+        public TestResult? LastTestResult { get; set; }
+
+        public static DestinationFormModel From(GundiConnection c) => new()
+        {
+            ConnectionName = c.ConnectionName,
+            Destination = c.Destination,
+            SendEverything = c.SendEverything,
+            ExistingApiKey = c.ApiKey,
+            GroupAliases = (c.GroupAliases ?? new())
+                .Select(GroupAliasFormModel.From).ToList(),
+        };
+
+        public GundiConnection ToConnection() => new()
+        {
+            ConnectionName = ConnectionName ?? "",
+            Destination = Destination ?? "",
+            ApiKey = string.IsNullOrEmpty(NewApiKey) ? (ExistingApiKey ?? "") : NewApiKey,
+            SendEverything = SendEverything,
+            GroupAliases = GroupAliases.Select(a => a.ToGroupAlias()).ToList(),
+        };
+
+        /// <summary>After a successful save, fold the just-typed key into
+        /// "existing" so subsequent edits show "(unchanged)" placeholder.</summary>
+        public void AcceptApiKey()
+        {
+            if (!string.IsNullOrEmpty(NewApiKey))
+            {
+                ExistingApiKey = NewApiKey;
+                NewApiKey = "";
+            }
+        }
+    }
+
+    /// <summary>
+    /// Form-shaped projection of GroupAlias. The runtime model marks both
+    /// fields as <c>required</c>, which makes object-initializer and
+    /// blank-row construction awkward in the UI; this mirror uses plain
+    /// nullable strings and converts at save time.
+    /// </summary>
+    private class GroupAliasFormModel
+    {
+        public string? Guid { get; set; }
+        public string? Alias { get; set; }
+
+        public static GroupAliasFormModel From(GroupAlias g) => new()
+        {
+            Guid = g.guid,
+            Alias = g.alias,
+        };
+
+        public GroupAlias ToGroupAlias() => new()
+        {
+            guid = Guid ?? "",
+            alias = Alias ?? "",
+        };
+    }
+
+    /// <summary>
+    /// Form-shaped projection of RouteConfiguration. Separate from the
+    /// runtime model so we can put DataAnnotations on it without polluting
+    /// the runtime type, and so the password "leave blank to keep" pattern
+    /// is explicit.
+    /// </summary>
+    private class FormModel
+    {
+        [Range(0, int.MaxValue, ErrorMessage = "Pick a reader type.")]
+        public int ReaderTypeValue { get; set; } = -1;
+        [Required] public string? Hostname { get; set; }
+        [Required] public string? DatabaseName { get; set; }
+        [Required] public string? Username { get; set; }
+        public string? NewPassword { get; set; } = "";
+        public string? DatabaseSchema { get; set; }
+        [Range(1, 1000)] public int BatchSize { get; set; } = 25;
+        public string? IntervalMs { get; set; } = "5000";
+        [Range(1, 600)] public int ConnectionTimeoutSeconds { get; set; } = 30;
+        [Range(1, 3600)] public int CommandTimeoutSeconds { get; set; } = 300;
+
+        public static FormModel From(RouteConfiguration r) => new()
+        {
+            ReaderTypeValue = r.DatabaseType is null ? -1 : (int)r.DatabaseType.Type,
+            Hostname = r.Hostname,
+            DatabaseName = r.DatabaseName,
+            Username = r.Username,
+            DatabaseSchema = r.DatabaseSchema,
+            BatchSize = r.BatchSize,
+            IntervalMs = r.intervalMs,
+            ConnectionTimeoutSeconds = r.ConnectionTimeoutSeconds,
+            CommandTimeoutSeconds = r.CommandTimeoutSeconds,
+        };
+
+        public RouteConfiguration ToRouteConfig(string? existingPassword)
+        {
+            var supported = service.RadioDataPumpService.supportedReaders
+                .FirstOrDefault(r => (int)r.Type == ReaderTypeValue);
+            if (supported is null)
+            {
+                // Defensive: the dropdown is bound to supportedReaders so
+                // the UI can't normally produce an unknown value, but a
+                // tampered request body could. Throw a clear error here
+                // rather than null-forgiving and persisting a config with
+                // DatabaseType = null. OnSave catches this and surfaces
+                // the message via the form's error display.
+                throw new InvalidOperationException(
+                    $"Reader type {ReaderTypeValue} is not recognized. Pick a value from the dropdown.");
+            }
+
+            return new RouteConfiguration
+            {
+                DatabaseType = supported,
+                Hostname = Hostname,
+                DatabaseName = DatabaseName,
+                Username = Username,
+                Password = string.IsNullOrEmpty(NewPassword) ? existingPassword : NewPassword,
+                DatabaseSchema = DatabaseSchema,
+                BatchSize = BatchSize,
+                intervalMs = IntervalMs,
+                ConnectionTimeoutSeconds = ConnectionTimeoutSeconds,
+                CommandTimeoutSeconds = CommandTimeoutSeconds,
+            };
+        }
+    }
+}

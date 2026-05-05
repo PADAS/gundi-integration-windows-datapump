@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net8.0-windows8.0</TargetFramework>
@@ -6,6 +6,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-service-05d32913-eedb-4f71-b8ef-718338b60ad1</UserSecretsId>
     <Platforms>AnyCPU;x86</Platforms>
+    <!-- Match the existing namespace convention; without this, Razor codegen
+         uses the assembly name (RadioService) and won't see service.* types. -->
+    <RootNamespace>service</RootNamespace>
+    <!-- Diagnostic: persist source-generator output to disk so we can read
+         the actual code Razor produced for our .razor files. Useful when
+         debugging routing or rendering issues. Lives under
+         obj/Generated/. -->
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)Generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,6 +23,7 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
     <PackageReference Include="Npgsql" Version="6.0.11" />
+    <PackageReference Include="Velopack" Version="0.0.1589-ga2c5a97" />
   </ItemGroup>
 
   <ItemGroup>

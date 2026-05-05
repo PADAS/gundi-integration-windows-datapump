@@ -1,0 +1,13 @@
+Gundi Radio Service has been installed and started.
+
+Next step: open the configuration page in your browser to set up the
+database connection and Gundi destinations.
+
+  http://localhost:8080/
+
+The service will run automatically in the background and start with
+Windows. You can check its status, see live data flow, and adjust
+configuration any time at the URL above.
+
+If you have trouble, the support team can be reached at the address
+your administrator provided.
