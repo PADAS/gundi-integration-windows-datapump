@@ -294,7 +294,7 @@
 </style>
 
 @code {
-    private FormModel _form = new();
+    private DbFormModel _form = new();
     private List<DestinationFormModel> _destinations = new();
     private List<string> _destinationErrors = new();
     private string? _savedMessage;
@@ -312,7 +312,7 @@
     protected override void OnInitialized()
     {
         var current = ConfigSvc.LoadRouteConfig();
-        _form = FormModel.From(current);
+        _form = DbFormModel.From(current);
         _passwordSet = !string.IsNullOrEmpty(current.Password);
         _destinations = (current.gundiConnections ?? new())
             .Select(DestinationFormModel.From)
@@ -616,147 +616,7 @@
         }
     }
 
-    /// <summary>
-    /// Form-shaped projection of a single GundiConnection. Tracks the
-    /// existing API key separately from what the user types, so the
-    /// "leave blank to keep" pattern works the same way as the DB
-    /// password. Group aliases pass through untouched in this slice —
-    /// editing them is a follow-up.
-    /// </summary>
-    private class DestinationFormModel
-    {
-        public string? ConnectionName { get; set; }
-        public string? Destination { get; set; }
-        public string? NewApiKey { get; set; } = "";
-        public bool SendEverything { get; set; }
-        public List<GroupAliasFormModel> GroupAliases { get; set; } = new();
-
-        // Public so it can be set in object initializers; this is a private
-        // nested class so the wider visibility is irrelevant.
-        public string? ExistingApiKey { get; set; }
-        public bool ApiKeySet => !string.IsNullOrEmpty(ExistingApiKey);
-
-        // Transient UI state — not round-tripped through GundiConnection.
-        public bool Testing { get; set; }
-        public TestResult? LastTestResult { get; set; }
-
-        public static DestinationFormModel From(GundiConnection c) => new()
-        {
-            ConnectionName = c.ConnectionName,
-            Destination = c.Destination,
-            SendEverything = c.SendEverything,
-            ExistingApiKey = c.ApiKey,
-            GroupAliases = (c.GroupAliases ?? new())
-                .Select(GroupAliasFormModel.From).ToList(),
-        };
-
-        public GundiConnection ToConnection() => new()
-        {
-            ConnectionName = ConnectionName ?? "",
-            Destination = Destination ?? "",
-            ApiKey = string.IsNullOrEmpty(NewApiKey) ? (ExistingApiKey ?? "") : NewApiKey,
-            SendEverything = SendEverything,
-            GroupAliases = GroupAliases.Select(a => a.ToGroupAlias()).ToList(),
-        };
-
-        /// <summary>After a successful save, fold the just-typed key into
-        /// "existing" so subsequent edits show "(unchanged)" placeholder.</summary>
-        public void AcceptApiKey()
-        {
-            if (!string.IsNullOrEmpty(NewApiKey))
-            {
-                ExistingApiKey = NewApiKey;
-                NewApiKey = "";
-            }
-        }
-    }
-
-    /// <summary>
-    /// Form-shaped projection of GroupAlias. The runtime model marks both
-    /// fields as <c>required</c>, which makes object-initializer and
-    /// blank-row construction awkward in the UI; this mirror uses plain
-    /// nullable strings and converts at save time.
-    /// </summary>
-    private class GroupAliasFormModel
-    {
-        public string? Guid { get; set; }
-        public string? Alias { get; set; }
-
-        public static GroupAliasFormModel From(GroupAlias g) => new()
-        {
-            Guid = g.guid,
-            Alias = g.alias,
-        };
-
-        public GroupAlias ToGroupAlias() => new()
-        {
-            guid = Guid ?? "",
-            alias = Alias ?? "",
-        };
-    }
-
-    /// <summary>
-    /// Form-shaped projection of RouteConfiguration. Separate from the
-    /// runtime model so we can put DataAnnotations on it without polluting
-    /// the runtime type, and so the password "leave blank to keep" pattern
-    /// is explicit.
-    /// </summary>
-    private class FormModel
-    {
-        [Range(0, int.MaxValue, ErrorMessage = "Pick a reader type.")]
-        public int ReaderTypeValue { get; set; } = -1;
-        [Required] public string? Hostname { get; set; }
-        [Required] public string? DatabaseName { get; set; }
-        [Required] public string? Username { get; set; }
-        public string? NewPassword { get; set; } = "";
-        public string? DatabaseSchema { get; set; }
-        [Range(1, 1000)] public int BatchSize { get; set; } = 25;
-        public string? IntervalMs { get; set; } = "5000";
-        [Range(1, 600)] public int ConnectionTimeoutSeconds { get; set; } = 30;
-        [Range(1, 3600)] public int CommandTimeoutSeconds { get; set; } = 300;
-
-        public static FormModel From(RouteConfiguration r) => new()
-        {
-            ReaderTypeValue = r.DatabaseType is null ? -1 : (int)r.DatabaseType.Type,
-            Hostname = r.Hostname,
-            DatabaseName = r.DatabaseName,
-            Username = r.Username,
-            DatabaseSchema = r.DatabaseSchema,
-            BatchSize = r.BatchSize,
-            IntervalMs = r.intervalMs,
-            ConnectionTimeoutSeconds = r.ConnectionTimeoutSeconds,
-            CommandTimeoutSeconds = r.CommandTimeoutSeconds,
-        };
-
-        public RouteConfiguration ToRouteConfig(string? existingPassword)
-        {
-            var supported = service.RadioDataPumpService.supportedReaders
-                .FirstOrDefault(r => (int)r.Type == ReaderTypeValue);
-            if (supported is null)
-            {
-                // Defensive: the dropdown is bound to supportedReaders so
-                // the UI can't normally produce an unknown value, but a
-                // tampered request body could. Throw a clear error here
-                // rather than null-forgiving and persisting a config with
-                // DatabaseType = null. OnSave catches this and surfaces
-                // the message via the form's error display.
-                throw new InvalidOperationException(
-                    $"Reader type {ReaderTypeValue} is not recognized. Pick a value from the dropdown.");
-            }
-
-            return new RouteConfiguration
-            {
-                DatabaseType = supported,
-                Hostname = Hostname,
-                DatabaseName = DatabaseName,
-                Username = Username,
-                Password = string.IsNullOrEmpty(NewPassword) ? existingPassword : NewPassword,
-                DatabaseSchema = DatabaseSchema,
-                BatchSize = BatchSize,
-                intervalMs = IntervalMs,
-                ConnectionTimeoutSeconds = ConnectionTimeoutSeconds,
-                CommandTimeoutSeconds = CommandTimeoutSeconds,
-            };
-        }
-    }
+    // Form-model classes (DbFormModel, DestinationFormModel,
+    // GroupAliasFormModel) live in service/SetupFormModels.cs so the
+    // first-run Setup wizard can share the exact same shapes.
 }
