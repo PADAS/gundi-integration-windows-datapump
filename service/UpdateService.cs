@@ -26,6 +26,15 @@ public class UpdateService
     private readonly IHostApplicationLifetime _lifetime;
     private readonly string? _feedUrl;
 
+    /// <summary>
+    /// Reason why <see cref="_manager"/> is null, for the UI. Distinguishes
+    /// "feed not configured" from "feed configured but UpdateManager
+    /// constructor threw" -- the latter is logged but the operator
+    /// previously saw the same misleading "feed not configured" message
+    /// either way.
+    /// </summary>
+    private readonly string? _initError;
+
     private UpdateInfo? _pendingUpdate;
 
     public UpdateService(IConfiguration config, IHostApplicationLifetime lifetime)
@@ -38,7 +47,9 @@ public class UpdateService
         // Velopack release artifacts (RELEASES + .nupkg files).
         _feedUrl = config["Updates:FeedUrl"]?.Trim();
         if (string.IsNullOrWhiteSpace(_feedUrl))
+        {
             _feedUrl = "https://storage.googleapis.com/radio-connectors/velopack/";
+        }
 
         try
         {
@@ -47,6 +58,7 @@ public class UpdateService
         catch (Exception ex)
         {
             _logger.Warn(ex, "Failed to initialize Velopack UpdateManager.");
+            _initError = $"Update manager unavailable; see logs ({ex.GetType().Name}: {ex.Message}).";
         }
     }
 
@@ -74,7 +86,8 @@ public class UpdateService
     public async Task<UpdateCheckOutcome> CheckAsync()
     {
         if (_manager is null)
-            return new UpdateCheckOutcome(false, null, "Update feed not configured.", false);
+            return new UpdateCheckOutcome(false, null,
+                _initError ?? "Update feed not configured.", false);
 
         if (!_manager.IsInstalled)
             return new UpdateCheckOutcome(false, null,
@@ -107,7 +120,8 @@ public class UpdateService
     /// </summary>
     public async Task<UpdateApplyOutcome> ApplyAsync()
     {
-        if (_manager is null) return new UpdateApplyOutcome(false, "Update feed not configured.");
+        if (_manager is null) return new UpdateApplyOutcome(false,
+            _initError ?? "Update feed not configured.");
         if (!_manager.IsInstalled) return new UpdateApplyOutcome(false, "Not installed via Velopack.");
         if (_pendingUpdate is null) return new UpdateApplyOutcome(false, "No pending update — run a check first.");
 

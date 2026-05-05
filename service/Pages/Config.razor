@@ -495,7 +495,22 @@
         }
 
         var existing = ConfigSvc.LoadRouteConfig();
-        var updated = _form.ToRouteConfig(existingPassword: existing.Password);
+        RouteConfiguration updated;
+        try
+        {
+            updated = _form.ToRouteConfig(existingPassword: existing.Password);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // ToRouteConfig throws on form-level invariants we don't cover
+            // with DataAnnotations -- e.g. an unknown ReaderTypeValue from a
+            // tampered request. Surface the message via the same error
+            // channel the destinations use; the operator can correct and
+            // re-save.
+            _destinationErrors = new List<string> { ex.Message };
+            _savedMessage = null;
+            return;
+        }
         updated.gundiConnections = _destinations.Select(d => d.ToConnection()).ToList();
 
         ConfigSvc.SaveRouteConfig(updated);
@@ -717,10 +732,21 @@
         {
             var supported = service.RadioDataPumpService.supportedReaders
                 .FirstOrDefault(r => (int)r.Type == ReaderTypeValue);
+            if (supported is null)
+            {
+                // Defensive: the dropdown is bound to supportedReaders so
+                // the UI can't normally produce an unknown value, but a
+                // tampered request body could. Throw a clear error here
+                // rather than null-forgiving and persisting a config with
+                // DatabaseType = null. OnSave catches this and surfaces
+                // the message via the form's error display.
+                throw new InvalidOperationException(
+                    $"Reader type {ReaderTypeValue} is not recognized. Pick a value from the dropdown.");
+            }
 
             return new RouteConfiguration
             {
-                DatabaseType = supported!,
+                DatabaseType = supported,
                 Hostname = Hostname,
                 DatabaseName = DatabaseName,
                 Username = Username,

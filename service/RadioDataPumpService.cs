@@ -167,9 +167,25 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
                 }
 
                 IDataWriter data_writer = new StatusTrackingWriter(grouped_writer, _status);
-                var dataPump = new RadioDataPump(
-                    routeConfig.intervalMs == null ? 5000 : int.Parse(routeConfig.intervalMs),
-                    routeConfig.BatchSize);
+
+                // intervalMs is stored as string for backwards compat. A
+                // non-numeric value (typo, unit suffix, etc.) shouldn't
+                // bring the pump down -- fall back to a sensible default
+                // and surface the bad value to the operator via the
+                // dashboard's last-error field.
+                const int defaultIntervalMs = 5000;
+                int intervalMs = defaultIntervalMs;
+                if (!string.IsNullOrEmpty(routeConfig.intervalMs)
+                    && !int.TryParse(routeConfig.intervalMs, out intervalMs))
+                {
+                    intervalMs = defaultIntervalMs;
+                    logger.Warn("intervalMs '{0}' is not a number; falling back to {1}ms.",
+                        routeConfig.intervalMs, intervalMs);
+                    _status.RecordError(
+                        $"intervalMs setting '{routeConfig.intervalMs}' is invalid; using {intervalMs}ms.");
+                }
+
+                var dataPump = new RadioDataPump(intervalMs, routeConfig.BatchSize);
 
                 logger.Info("Starting pump.");
                 _status.MarkRunning(true);
