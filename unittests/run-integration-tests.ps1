@@ -1,6 +1,6 @@
 # Template runner for the integration tests.
 #
-# DO NOT put real credentials in this file — it is tracked in git.
+# DO NOT put real credentials in this file -- it is tracked in git.
 # Instead, copy it to a sibling file ending in .local.ps1 (gitignored)
 # and edit that copy:
 #
@@ -9,12 +9,12 @@
 #     .\unittests\run-integration-tests.local.ps1
 #
 # Readers you don't want to exercise: leave their CONNSTR commented out or
-# empty — those tests will skip automatically. Env vars set here only live
+# empty -- those tests will skip automatically. Env vars set here only live
 # for the duration of this script's child processes.
 
 $ErrorActionPreference = 'Stop'
 
-# Refuse to run as the tracked template — running this file directly would
+# Refuse to run as the tracked template -- running this file directly would
 # leak CHANGE_ME credentials into the caller's session env vars and produce
 # noisy auth failures instead of clean skips. Copy to a *.local.ps1 sibling
 # (gitignored) and run that copy.

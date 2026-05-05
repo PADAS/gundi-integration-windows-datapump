@@ -5,6 +5,8 @@ using worker;
 using CliWrap;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
+using Velopack;
+using NLog;
 
 internal class Program
 {
@@ -19,9 +21,57 @@ internal class Program
     }
     private static async Task Main(string[] args)
     {
-        const string service_name = "Gundi Radio Service";
-        const string service_executable_name = "RadioService.exe";
+        const string service_name = ServiceManager.ServiceName;
+        const string service_executable_name = ServiceManager.ExecutableName;
 
+        // After the install hook fires, the MSI's interactive launch of
+        // RadioService.exe should exit immediately — the service is now
+        // registered, SCM will start it, and continuing on to start a
+        // web host as the operator would race the service for port 8080
+        // and leave a console window open that confuses the customer.
+        bool exitAfterHook = false;
+
+        // Velopack hooks must run before anything else. When the installer
+        // invokes our exe with --veloapp-install / --veloapp-updated /
+        // --veloapp-uninstall, this call processes the hook and exits the
+        // process. For ordinary launches it returns and we proceed normally.
+        // Putting it before IsAdministrator() avoids the installer's hook
+        // invocations getting blocked by the admin check (the installer
+        // itself prompts for elevation, so the hooks already run as admin
+        // when needed).
+        VelopackApp.Build()
+            .OnFirstRun(_ => LogManager.GetCurrentClassLogger().Info("First run after fresh install."))
+            .OnAfterInstallFastCallback(v =>
+            {
+                // Fresh install via Setup.exe: register the Windows service
+                // pointing at the just-installed exe. Same logic as the
+                // legacy /install arg path; both call into ServiceManager.
+                var exePath = Path.Combine(AppContext.BaseDirectory, ServiceManager.ExecutableName);
+                LogManager.GetCurrentClassLogger().Info($"Velopack OnAfterInstall: registering service at {exePath}");
+                ServiceManager.RegisterAsync(exePath).GetAwaiter().GetResult();
+
+                // Don't continue with the normal Main flow. SCM owns the
+                // service lifetime now; running the web host here would be
+                // a duplicate process competing for port 8080.
+                exitAfterHook = true;
+            })
+            .OnBeforeUninstallFastCallback(_ =>
+            {
+                // Uninstall via Add/Remove Programs (or veloapp-uninstall):
+                // stop and delete the service before Velopack removes the
+                // binaries. If the service is still running when Velopack
+                // tries to delete its files, the uninstall fails with
+                // "file in use".
+                LogManager.GetCurrentClassLogger().Info("Velopack OnBeforeUninstall: stopping and removing service");
+                ServiceManager.UnregisterAsync().GetAwaiter().GetResult();
+            })
+            .OnAfterUpdateFastCallback(v => LogManager.GetCurrentClassLogger().Info($"Updated to {v}."))
+            .Run();
+
+        if (exitAfterHook)
+        {
+            return;
+        }
 
         if (!IsAdministrator())
         {
@@ -35,7 +85,6 @@ internal class Program
 
         if (args is { Length: 1 })
         {
-
             try
             {
                 string executablePath =
@@ -43,52 +92,12 @@ internal class Program
 
                 if (args[0].ToLower() is "/install")
                 {
-                    var result = await Cli.Wrap("sc")
-                        .WithArguments(new[] {
-                    "create",
-                    service_name,
-                    $"binPath={executablePath}",
-                    "start=auto",
-                    $"displayname={service_name}"})
-                        .WithValidation(CommandResultValidation.None).ExecuteAsync();
-
-                    int[] good_return_codes = {
-                                                0, // success 
-                                                1073 // a service with that name already exists
-                                                };
-                    if (!good_return_codes.Contains(result.ExitCode))
-                    {
-                        Console.WriteLine($"I could not create the service (exit code: {result.ExitCode})");
-                        return;
-                    }
-
-                    result = await Cli.Wrap("sc").WithArguments(new[] {
-                    "failure",
-                    service_name,
-                    "reset=0",
-                    "actions=restart/60000/restart/120000/restart/180000" }).ExecuteAsync();
-
-                    result = await Cli.Wrap("sc").WithArguments(new[] {
-                    "description",
-                    service_name,
-                    "A Gundi/EarthRanger service that reads radio location data from a local database." }).ExecuteAsync();
-
-                    result = await Cli.Wrap("sc").WithArguments(new[] {
-                    "start",
-                    service_name,
-                    }).ExecuteAsync();
-
+                    var ok = await ServiceManager.RegisterAsync(executablePath);
+                    if (!ok) Console.WriteLine("Service registration failed. See logs.");
                 }
                 else if (args[0].ToLower() is "/uninstall")
                 {
-                    await Cli.Wrap("sc")
-                        .WithArguments(new[] { "stop", service_name })
-                        .WithValidation(CommandResultValidation.None)
-                        .ExecuteAsync();
-
-                    await Cli.Wrap("sc")
-                        .WithArguments(new[] { "delete", service_name })
-                        .ExecuteAsync();
+                    await ServiceManager.UnregisterAsync();
                 }
                 else if (args[0].ToLower() is "/configure")
                 {
@@ -107,7 +116,19 @@ internal class Program
             return;
         }
 
-        var builder = Host.CreateApplicationBuilder(args);
+        // ----------------------------------------------------------------
+        // Web host: BackgroundService (the pump) + Blazor Server (the UI)
+        // share a process. Bound to localhost only — the embedded UI is
+        // for the operator on this box, not the network.
+        // ----------------------------------------------------------------
+        var builder = WebApplication.CreateBuilder(args);
+
+        builder.WebHost.ConfigureKestrel(opts =>
+        {
+            // 127.0.0.1 keeps Windows Firewall happy and prevents accidental
+            // exposure to the LAN. Configurable later.
+            opts.ListenLocalhost(8080);
+        });
 
         builder.Services.AddWindowsService(options =>
         {
@@ -121,9 +142,39 @@ internal class Program
             EventLogSettings, EventLogLoggerProvider>(builder.Services);
         }
 
-        builder.Services.AddHostedService<RadioDataPumpService>();
+        // Shared pump state: written by RadioDataPumpService, observed by Blazor pages.
+        builder.Services.AddSingleton<PumpStatus>();
+        builder.Services.AddSingleton<ConfigService>();
+        builder.Services.AddSingleton<PumpController>();
+        builder.Services.AddSingleton<UpdateService>();
+        builder.Services.AddSingleton<LogService>();
+        builder.Services.AddSingleton<DiagnosticBundleService>();
 
-        IHost host = builder.Build();
-        host.Run();
+        builder.Services.AddHostedService<RadioDataPumpService>();
+        builder.Services.AddHostedService<HeartbeatService>();
+
+        builder.Services.AddRazorPages();
+        builder.Services.AddServerSideBlazor();
+
+        var app = builder.Build();
+
+        app.UseStaticFiles();
+        app.UseRouting();
+        app.MapBlazorHub();
+
+        // Diagnostic bundle download endpoint (used by the "Download
+        // diagnostic bundle" button on the Status page). Streams a fresh
+        // zip on every request -- no caching -- so the bundle reflects
+        // the current state of the service. Localhost-only by virtue of
+        // Kestrel's bind config; no auth otherwise.
+        app.MapGet("/api/diagnostic-bundle", (DiagnosticBundleService bundler) =>
+        {
+            var bytes = bundler.BuildBundle();
+            return Results.File(bytes, "application/zip", bundler.SuggestedFilename());
+        });
+
+        app.MapFallbackToPage("/_Host");
+
+        app.Run();
     }
 }

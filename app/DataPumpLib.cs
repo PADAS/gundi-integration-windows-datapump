@@ -794,6 +794,62 @@ public class GundiV2DataWriter : IDataWriter
         matchingGroups.Add(group);
     }
 
+    /// <summary>
+    /// Verifies the API key is accepted by the destination. POSTs an empty
+    /// observations array — auth runs before payload validation, so the
+    /// response code distinguishes a bad key (401/403) from a payload
+    /// objection (400, which still proves auth passed) cleanly.
+    ///
+    /// Bypasses both the retry policy and the shared circuit breaker. The
+    /// configuration UI wants fast feedback, not retry pauses, and a
+    /// production circuit-open state shouldn't block a config probe.
+    /// </summary>
+    public async Task<TestResult> TestConnection(CancellationToken cancellation = default)
+    {
+        // Fresh client so we don't ride on the production HttpClient's
+        // headers (which already carry the production apikey) or its
+        // pooled connections (which could be in a degraded state).
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        client.DefaultRequestHeaders.Add("apikey", _apikey);
+        client.DefaultRequestHeaders.Add("User-Agent", VersionInfo.UserAgent);
+
+        try
+        {
+            var resp = await client.PostAsJsonAsync(
+                $"{_destination}/v2/observations/",
+                Array.Empty<object>(),
+                cancellation);
+
+            int code = (int)resp.StatusCode;
+
+            if (code is 401 or 403)
+                return new TestResult(false, $"Authentication failed (HTTP {code}). Check the API key.");
+
+            if (resp.IsSuccessStatusCode)
+                return new TestResult(true, "API key accepted.");
+
+            // 400 means the request reached the application layer (auth
+            // passed) but the empty payload was rejected. For a config
+            // probe, that's still good news.
+            if (code == 400)
+                return new TestResult(true, "API key accepted. (Server rejected the empty probe payload, which is expected.)");
+
+            // Other non-2xx (404, 5xx, ...) — uncertain. Surface the body
+            // so the operator has something to act on.
+            var body = await resp.Content.ReadAsStringAsync(cancellation);
+            var snippet = body.Length > 200 ? body[..200] + "…" : body;
+            return new TestResult(false, $"HTTP {code}: {snippet}");
+        }
+        catch (TaskCanceledException) when (!cancellation.IsCancellationRequested)
+        {
+            return new TestResult(false, "Timed out connecting to destination.");
+        }
+        catch (HttpRequestException ex)
+        {
+            return new TestResult(false, $"Network error: {ex.Message}");
+        }
+    }
+
     public async Task<int> PostObservation(ISourceRecord record, CancellationToken cancellationToken = default)
     {
         if (matchingGroups.Count > 0 && !matchingGroups.Contains(record.group_identifier))

@@ -1,0 +1,43 @@
+@inherits LayoutComponentBase
+
+<header>
+    <h1>Gundi Radio Service</h1>
+    <nav>
+        <NavLink href="" Match="NavLinkMatch.All">Status</NavLink>
+        <NavLink href="config">Configuration</NavLink>
+        <NavLink href="logs">Logs</NavLink>
+    </nav>
+</header>
+
+<main>
+    @Body
+</main>
+
+<style>
+    body { font-family: -apple-system, Segoe UI, sans-serif; margin: 0; background: #f5f5f7; color: #1d1d1f; }
+    header { background: #1d1d1f; color: white; padding: 1rem 2rem; display: flex; align-items: center; gap: 2rem; }
+    header h1 { margin: 0; font-size: 1.25rem; font-weight: 500; }
+    header nav { display: flex; gap: 1.25rem; }
+    header nav a { color: #aaa; text-decoration: none; font-size: 0.95rem; padding: 0.25rem 0; border-bottom: 2px solid transparent; }
+    header nav a:hover { color: white; }
+    header nav a.active { color: white; border-bottom-color: #0071e3; }
+    main { max-width: 900px; margin: 2rem auto; padding: 0 2rem; }
+    .card { background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 1rem; }
+    .card h2 { margin-top: 0; font-size: 1.1rem; font-weight: 500; color: #555; }
+    .stat { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #eee; }
+    .stat:last-child { border-bottom: none; }
+    .stat-label { color: #666; }
+    .stat-value { font-family: ui-monospace, Consolas, monospace; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.85em; font-weight: 500; }
+    .badge-running { background: #d4edda; color: #155724; }
+    .badge-paused  { background: #fff3cd; color: #856404; }
+    .badge-stopped { background: #f8d7da; color: #721c24; }
+    .badge-error   { background: #f8d7da; color: #721c24; }
+    button { background: #0071e3; color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; font-size: 0.95rem; cursor: pointer; }
+    button:hover { background: #0077ed; }
+    .error { background: #fff3cd; color: #856404; padding: 0.75rem 1rem; border-radius: 6px; margin-top: 0.75rem; }
+    .error-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem; }
+    .error-body { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; word-break: break-word; }
+    .dismiss { background: none; color: #856404; border: none; padding: 0 0.5rem; cursor: pointer; font-size: 1.2rem; line-height: 1; }
+    .dismiss:hover { background: rgba(133, 100, 4, 0.1); border-radius: 4px; color: #856404; }
+</style>
