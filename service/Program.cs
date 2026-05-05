@@ -77,7 +77,44 @@ internal class Program
                 LogManager.GetCurrentClassLogger().Info("Velopack OnBeforeUninstall: stopping and removing service");
                 ServiceManager.UnregisterAsync().GetAwaiter().GetResult();
             })
-            .OnAfterUpdateFastCallback(v => LogManager.GetCurrentClassLogger().Info($"Updated to {v}."))
+            .OnAfterUpdateFastCallback(v =>
+            {
+                // After Velopack's updater applies the file swap it
+                // respawns the new exe -- but as an ordinary process,
+                // not as the SCM-managed service. The previous service
+                // process exited gracefully (StopApplication, exit 0)
+                // which doesn't trigger SCM's failure-restart actions,
+                // so SCM still believes the service is "Stopped." If we
+                // continued through Main here we'd run a web host as a
+                // detached LocalSystem process, and on the next reboot
+                // SCM wouldn't know to start anything.
+                //
+                // Defensive fix: tell SCM to start the service, then
+                // exit. SCM spawns the service in its proper context
+                // (the new exe, the same registered binPath, fresh
+                // service-mode lifecycle) and the SCM-spawned instance
+                // becomes the running service. Our just-started
+                // post-update process exits cleanly without binding
+                // 8080, so there's no port collision.
+                var hookLog = LogManager.GetCurrentClassLogger();
+                hookLog.Info($"Updated to {v}; signalling SCM to start the service.");
+
+                var start = Cli.Wrap("sc")
+                    .WithArguments(new[] { "start", ServiceManager.ServiceName })
+                    .WithValidation(CommandResultValidation.None)
+                    .ExecuteAsync().GetAwaiter().GetResult();
+
+                if (start.ExitCode != 0)
+                {
+                    // 1056 = service already running. That's fine -- just
+                    // means SCM beat us to it (or kept the old process
+                    // alive somehow). Log and proceed.
+                    hookLog.Info("sc start exit code {0} (1056 = already running, ignored).",
+                        start.ExitCode);
+                }
+
+                exitAfterHook = true;
+            })
             .Run();
 
         if (exitAfterHook)
