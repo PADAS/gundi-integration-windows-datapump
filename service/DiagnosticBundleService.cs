@@ -51,6 +51,7 @@ public class DiagnosticBundleService
     {
         using var zip = new ZipArchive(target, ZipArchiveMode.Create, leaveOpen: true);
         AddLogFile(zip);
+        AddArchivedLogs(zip);
         AddRedactedAppSettings(zip);
         AddStateFile(zip);
         AddMetadata(zip);
@@ -68,6 +69,31 @@ public class DiagnosticBundleService
             path, FileMode.Open, FileAccess.Read,
             FileShare.ReadWrite | FileShare.Delete);
         fileStream.CopyTo(entryStream);
+    }
+
+    /// <summary>
+    /// NLog's rolling-file target archives older logs to a "logs/"
+    /// subdirectory at <c>${basedir}/logs/radioservice.${shortdate}.log</c>
+    /// (see <c>NLog.config</c>). With archiveAboveSize=1 MB, current
+    /// radioservice.log only holds the most recent ~1 MB of activity --
+    /// the lines support actually needs are very often already in an
+    /// archive. Pull them all into the bundle under "logs/".
+    /// </summary>
+    private static void AddArchivedLogs(ZipArchive zip)
+    {
+        var archiveDir = Path.Combine(AppContext.BaseDirectory, "logs");
+        if (!Directory.Exists(archiveDir)) return;
+
+        foreach (var path in Directory.EnumerateFiles(archiveDir, "radioservice.*.log"))
+        {
+            var entryName = "logs/" + Path.GetFileName(path);
+            var entry = zip.CreateEntry(entryName, CompressionLevel.Optimal);
+            using var entryStream = entry.Open();
+            using var fileStream = new FileStream(
+                path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            fileStream.CopyTo(entryStream);
+        }
     }
 
     private void AddRedactedAppSettings(ZipArchive zip)
@@ -136,7 +162,8 @@ public class DiagnosticBundleService
         sb.AppendLine($"Last error:       {s.LastError ?? "(none)"}");
         sb.AppendLine();
         sb.AppendLine("--- Bundle contents ---");
-        sb.AppendLine("radioservice.log   Full NLog output for this install.");
+        sb.AppendLine("radioservice.log   Current NLog output (most recent ~1 MB).");
+        sb.AppendLine("logs/              Archived NLog rolls (older history).");
         sb.AppendLine("appsettings.json   Configuration. Passwords and API keys redacted.");
         sb.AppendLine("state.json         Cursor / high-water-mark used by the data pump.");
         sb.AppendLine("metadata.txt       This file.");
