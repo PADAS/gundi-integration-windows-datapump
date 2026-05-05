@@ -247,21 +247,73 @@ that step (or publish from a machine with no prior state) and every
 release will be a full ~75 MB download for every customer. With deltas,
 typical updates are 1–5 MB.
 
-### Code signing
+### Code signing (currently skipped, on purpose)
 
-Without a code-signing certificate, customers running `Setup.exe` will
-hit a SmartScreen "unrecognized publisher" warning. For production
-rollout, pass signing parameters through to `vpk pack`:
+The MSI is built **unsigned** by default. The Gundi Radio Service isn't
+distributed to end customers via a public download — a Padas support
+team member or technical advisor performs every install on the
+customer's box. Those operators can click through the warnings below
+without trouble, so the cost of an EV / OV code-signing cert hasn't
+justified itself yet.
+
+When the technical advisor runs the unsigned MSI, they will see (in
+order):
+
+1. **Browser download warning** ("This file isn't commonly downloaded")
+   if the MSI is downloaded via Edge or Chrome from the public bucket.
+   One click-through (`...` → Keep, or "Keep" button).
+2. **SmartScreen on first run** ("Microsoft Defender SmartScreen
+   prevented an unrecognized app from starting"). Click `More info` →
+   `Run anyway`.
+3. **UAC elevation dialog** showing **Publisher: Unknown** in red text
+   instead of a green "Verified publisher: Padas". Click Yes.
+
+After those three clicks the MSI dialogs proceed normally with our
+custom branding (icon, license, conclusion).
+
+#### Reducing friction without a cert
+
+Two practices we recommend for the support team's install runbook:
+
+- **Transfer the MSI without Mark-of-the-Web.** Most warnings come from
+  the NTFS "downloaded from the internet" stream that browsers attach
+  to downloads. `gsutil cp` from the GCS bucket to the customer's box,
+  USB transfer, or network share copy avoid this entirely. SmartScreen
+  and the "isn't commonly downloaded" warning don't fire when the MSI
+  has no MOTW. The recommended transfer for the support team is:
+
+  ```powershell
+  gsutil cp gs://radio-connectors/velopack/GundiRadioService-win.msi .
+  ```
+
+- **Strip MOTW after browser download.** If the MSI did come from a
+  browser, one PowerShell line removes the tag:
+
+  ```powershell
+  Unblock-File .\GundiRadioService-win.msi
+  ```
+
+  After that, only the UAC "Unknown publisher" remains.
+
+#### When we should revisit signing
+
+Worth reconsidering if any of these become true:
+
+- A customer's IT department uses AppLocker / Software Restriction
+  Policies that *block* unsigned executables outright. (Signed in this
+  case isn't optional — the MSI literally won't run otherwise.)
+- The product moves to a self-install distribution model (e.g., a
+  customer downloads the MSI directly without involving the support
+  team).
+- The number of customer environments grows to a point where
+  per-install hand-holding doesn't scale.
+
+The `-SignParams` flag on `publish-velopack.ps1` is wired in for that
+day; signing is one cert away from working:
 
 ```powershell
 .\publish-velopack.ps1 -SignParams "/a /tr http://timestamp.digicert.com /td sha256 /fd sha256"
 ```
-
-Velopack accepts the same parameters `signtool` does. EV certs (Extended
-Validation, ~$300–500/year) eliminate the warning immediately on first
-install; OV certs (~$200–300/year) eliminate it after enough installs
-build up reputation. EV is recommended for the v3.0 launch given that
-self-installing customers are the primary cohort.
 
 ### Known limitations
 
@@ -308,9 +360,10 @@ distributing to a real customer:
   license terms. The current Apache 2.0 was placeholder content; the
   MSI displays it as the click-through "I agree" page, so whatever
   is there is what the customer accepts.
-- Code-signing certificate is wired into `publish-velopack.ps1`
-  (`-SignParams "..."`). Without it, customers see a SmartScreen
-  warning on first install.
+- Code signing is not required for the current install model — see
+  the "Code signing (currently skipped, on purpose)" section above.
+  Revisit only if a customer's IT environment blocks unsigned
+  binaries (AppLocker / SRP) or if the distribution model changes.
 
 ---
 
@@ -375,9 +428,19 @@ the first release; subsequent releases should produce small delta
 nupkgs. If they don't, check that `gsutil rsync` actually downloaded
 prior `*.nupkg` files into `publish/velopack/` before `vpk pack` ran.
 
-**SmartScreen warning on customer install**
-The `Setup.exe` is unsigned. Pass `-SignParams "..."` to
-`publish-velopack.ps1`. EV certificate recommended for production.
+**SmartScreen warning during install**
+Expected for our current install model — the MSI is unsigned on
+purpose (see "Code signing (currently skipped, on purpose)" above for
+the rationale and the workflow recommendations). If you actually need
+to sign — for an enterprise customer that blocks unsigned binaries —
+pass `-SignParams "..."` to `publish-velopack.ps1`.
+
+**MSI fails to launch with no warning at all**
+Usually means the customer's environment blocks unsigned binaries
+outright (AppLocker, Software Restriction Policies, or strict
+anti-virus). Check with the customer's IT before the visit; either
+get a hash-based whitelist exception, or you'll need to start signing
+for that customer.
 
 **`gsutil acl ch` fails with "Bucket policy only"**
 The bucket has been migrated to Uniform Bucket-Level Access, which

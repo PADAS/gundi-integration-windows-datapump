@@ -242,11 +242,17 @@ if (Test-Path $conclusionPath) { $packArgs += @('--instConclusion', $conclusionP
 #
 # welcome.txt and readme.txt are still kept in assets/installer/ so
 # they're ready to re-enable here when Velopack ships the upstream fix.
+# Code signing is deliberately optional. The Gundi Radio Service is not
+# downloaded by end customers from a public site -- a Padas support team
+# member or technical advisor performs every install on the customer's
+# box. Those operators can click through SmartScreen warnings and the
+# "Unknown publisher" UAC prompt with no real friction, so paying for a
+# code-signing cert hasn't justified itself yet. The -SignParams flag is
+# kept for the day a deployment shape changes (broader rollout, an IT
+# department with AppLocker, etc.) and we want to start signing.
 if ($SignParams) {
     Write-Host "       (signing enabled)"
     $packArgs += @('--signParams', $SignParams)
-} else {
-    Write-Warning "Building unsigned. Customer SmartScreen warnings will result. Pass -SignParams for production."
 }
 & vpk @packArgs
 if ($LASTEXITCODE -ne 0) { throw "vpk pack failed (exit $LASTEXITCODE)" }
