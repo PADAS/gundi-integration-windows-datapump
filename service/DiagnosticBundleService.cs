@@ -36,19 +36,24 @@ public class DiagnosticBundleService
         return $"gundi-radio-diagnostics-{safeVersion}-{ts}.zip";
     }
 
-    /// <summary>Builds the bundle as a fresh byte array per call.</summary>
-    public byte[] BuildBundle()
+    /// <summary>
+    /// Writes the bundle to the supplied stream. Caller is responsible
+    /// for managing the stream's lifetime; the bundle ZipArchive is
+    /// constructed with leaveOpen=true so disposing it does not close
+    /// the caller's stream.
+    ///
+    /// Streaming-friendly so the endpoint can pipe through a
+    /// FileBufferingWriteStream rather than holding the entire zip
+    /// (which can exceed 100 MB for a long-running install with a big
+    /// log file) in process memory.
+    /// </summary>
+    public void BuildBundle(Stream target)
     {
-        using var ms = new MemoryStream();
-        // leaveOpen so we can ToArray() after the using block disposes the archive.
-        using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
-        {
-            AddLogFile(zip);
-            AddRedactedAppSettings(zip);
-            AddStateFile(zip);
-            AddMetadata(zip);
-        }
-        return ms.ToArray();
+        using var zip = new ZipArchive(target, ZipArchiveMode.Create, leaveOpen: true);
+        AddLogFile(zip);
+        AddRedactedAppSettings(zip);
+        AddStateFile(zip);
+        AddMetadata(zip);
     }
 
     private void AddLogFile(ZipArchive zip)

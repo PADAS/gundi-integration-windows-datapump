@@ -815,7 +815,7 @@ public class GundiV2DataWriter : IDataWriter
 
         try
         {
-            var resp = await client.PostAsJsonAsync(
+            using var resp = await client.PostAsJsonAsync(
                 $"{_destination}/v2/observations/",
                 Array.Empty<object>(),
                 cancellation);

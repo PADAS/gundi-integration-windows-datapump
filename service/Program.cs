@@ -167,10 +167,24 @@ internal class Program
         // zip on every request -- no caching -- so the bundle reflects
         // the current state of the service. Localhost-only by virtue of
         // Kestrel's bind config; no auth otherwise.
-        app.MapGet("/api/diagnostic-bundle", (DiagnosticBundleService bundler) =>
+        //
+        // Uses FileBufferingWriteStream so the zip stays in RAM up to a
+        // 32 MB threshold and spills to disk above that. The radioservice
+        // log can be hundreds of MB on long-running installs; buffering
+        // the whole zip in memory would cause the service to spike RAM
+        // (and potentially OOM on small boxes) every time someone clicks
+        // the download button.
+        app.MapGet("/api/diagnostic-bundle", async (HttpContext ctx, DiagnosticBundleService bundler) =>
         {
-            var bytes = bundler.BuildBundle();
-            return Results.File(bytes, "application/zip", bundler.SuggestedFilename());
+            ctx.Response.ContentType = "application/zip";
+            ctx.Response.Headers.ContentDisposition =
+                $"attachment; filename=\"{bundler.SuggestedFilename()}\"";
+
+            await using var buffer = new Microsoft.AspNetCore.WebUtilities.FileBufferingWriteStream(
+                memoryThreshold: 32 * 1024 * 1024,        // 32 MB before spilling to a temp file
+                bufferLimit:     2L * 1024 * 1024 * 1024); // 2 GB hard cap
+            bundler.BuildBundle(buffer);
+            await buffer.DrainBufferAsync(ctx.Response.Body, ctx.RequestAborted);
         });
 
         app.MapFallbackToPage("/_Host");

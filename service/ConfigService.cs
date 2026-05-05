@@ -8,10 +8,15 @@ using System.Text.Json.Nodes;
 /// etc.) by parsing the file as a JsonNode tree, replacing only the
 /// RouteConfiguration subtree, and writing back atomically.
 ///
-/// The current process holds a long-lived IConfiguration that won't see
-/// changes until either the host reloads or the service is restarted; for
-/// now the UI surfaces "Restart the service to apply" after save. Live
-/// reload is a separate piece of work.
+/// Hot-reload: saves do NOT require a service restart. The Save handler in
+/// the configuration UI calls into this service to persist, then signals
+/// PumpController.RequestReload(). The pump's outer loop notices, disposes
+/// the current reader (preserving cursor in state.json), and rebuilds with
+/// the freshly-saved config.
+///
+/// JSON parsing is tolerant of comments and trailing commas to match what
+/// IConfiguration accepts at runtime. A hand-edited file the running
+/// service was happy with shouldn't suddenly be unsavable here.
 /// </summary>
 public class ConfigService
 {
@@ -20,6 +25,11 @@ public class ConfigService
     {
         WriteIndented = true,
         PropertyNamingPolicy = null, // preserve casing as-is
+    };
+    private static readonly JsonDocumentOptions JsonDocOpts = new()
+    {
+        CommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true,
     };
 
     public ConfigService()
@@ -41,7 +51,7 @@ public class ConfigService
         try
         {
             var json = File.ReadAllText(_path);
-            var root = JsonNode.Parse(json) as JsonObject;
+            var root = JsonNode.Parse(json, documentOptions: JsonDocOpts) as JsonObject;
             var section = root?["RouteConfiguration"];
             if (section is null) return new RouteConfiguration();
             return JsonSerializer.Deserialize<RouteConfiguration>(section.ToJsonString(), JsonOpts)
@@ -65,7 +75,20 @@ public class ConfigService
         if (File.Exists(_path))
         {
             var json = File.ReadAllText(_path);
-            root = (JsonNode.Parse(json) as JsonObject) ?? new JsonObject();
+            try
+            {
+                root = (JsonNode.Parse(json, documentOptions: JsonDocOpts) as JsonObject)
+                       ?? new JsonObject();
+            }
+            catch
+            {
+                // Don't lose the user's save attempt because the file on
+                // disk was malformed. Start a fresh root; the save will
+                // produce a valid file (and any prior unrelated sections
+                // are unfortunately lost — but they would also be
+                // unrecoverable from malformed JSON anyway).
+                root = new JsonObject();
+            }
         }
         else
         {

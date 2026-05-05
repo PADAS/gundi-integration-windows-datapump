@@ -150,9 +150,18 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, IConfiguration
                 foreach (var gundiConnection in routeConfig.gundiConnections ?? new())
                 {
                     var w = new GundiV2DataWriter(gundiConnection.Destination, gundiConnection.ApiKey);
-                    foreach (var groupAlias in gundiConnection.GroupAliases ?? new())
+                    // Honor SendEverything: when true, the destination wants
+                    // every observation regardless of group. Adding any
+                    // matching-group filter to GundiV2DataWriter causes it
+                    // to drop records outside that group; an empty filter
+                    // means pass-through. So skip the AddMatchingGroup loop
+                    // entirely when SendEverything is on.
+                    if (!gundiConnection.SendEverything)
                     {
-                        w.AddMatchingGroup(groupAlias.guid);
+                        foreach (var groupAlias in gundiConnection.GroupAliases ?? new())
+                        {
+                            w.AddMatchingGroup(groupAlias.guid);
+                        }
                     }
                     grouped_writer.AddWriter(w);
                 }
