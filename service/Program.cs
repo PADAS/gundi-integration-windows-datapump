@@ -46,9 +46,21 @@ internal class Program
                 // Fresh install via Setup.exe: register the Windows service
                 // pointing at the just-installed exe. Same logic as the
                 // legacy /install arg path; both call into ServiceManager.
+                var hookLog = LogManager.GetCurrentClassLogger();
                 var exePath = Path.Combine(AppContext.BaseDirectory, ServiceManager.ExecutableName);
-                LogManager.GetCurrentClassLogger().Info($"Velopack OnAfterInstall: registering service at {exePath}");
-                ServiceManager.RegisterAsync(exePath).GetAwaiter().GetResult();
+                hookLog.Info($"Velopack OnAfterInstall: registering service at {exePath}");
+                bool ok = ServiceManager.RegisterAsync(exePath).GetAwaiter().GetResult();
+
+                if (!ok)
+                {
+                    // Don't let an install report success when the service
+                    // wasn't registered. Throw so Velopack's hook
+                    // dispatcher exits non-zero; the operator sees the
+                    // installer fail and looks at radioservice.log.
+                    hookLog.Error("Service registration failed during OnAfterInstall.");
+                    throw new InvalidOperationException(
+                        "Service registration failed. See radioservice.log next to RadioService.exe for details.");
+                }
 
                 // Don't continue with the normal Main flow. SCM owns the
                 // service lifetime now; running the web host here would be

@@ -85,23 +85,48 @@ public static class ServiceManager
                 logger.Info("Service '{0}' already existed; updated binPath to {1}.", ServiceName, exePath);
             }
 
-            await Cli.Wrap("sc").WithArguments(new[] {
+            // sc failure / sc description exit codes are now actually
+            // checked. A non-zero here means the service exists but is
+            // missing recovery actions or description — not a strictly
+            // catastrophic state, but enough that a wholesale "registered
+            // OK" return would be a lie. We log + return false so the
+            // caller (Velopack OnAfterInstall hook or the /install arg
+            // path) can surface the failure rather than declaring success
+            // with a half-configured service.
+            var failure = await Cli.Wrap("sc").WithArguments(new[] {
                 "failure", ServiceName,
                 "reset=0",
                 "actions=restart/60000/restart/120000/restart/180000"
             }).WithValidation(CommandResultValidation.None).ExecuteAsync();
+            if (failure.ExitCode != 0)
+            {
+                logger.Error("sc failure failed with exit code {0}; recovery actions are unconfigured.",
+                    failure.ExitCode);
+                return false;
+            }
 
-            await Cli.Wrap("sc").WithArguments(new[] {
+            var description = await Cli.Wrap("sc").WithArguments(new[] {
                 "description", ServiceName, Description
             }).WithValidation(CommandResultValidation.None).ExecuteAsync();
+            if (description.ExitCode != 0)
+            {
+                logger.Error("sc description failed with exit code {0}; description is missing.",
+                    description.ExitCode);
+                return false;
+            }
 
             // Start is best-effort: if the service is already running (1073
             // case above), `sc start` returns non-zero — we don't want that
-            // to flip the overall outcome to failure.
-            await Cli.Wrap("sc")
+            // to flip the overall outcome to failure. Logged for visibility.
+            var start = await Cli.Wrap("sc")
                 .WithArguments(new[] { "start", ServiceName })
                 .WithValidation(CommandResultValidation.None)
                 .ExecuteAsync();
+            if (start.ExitCode != 0)
+            {
+                logger.Info("sc start exit code {0} (typically 1056 = already running, ignored).",
+                    start.ExitCode);
+            }
 
             logger.Info("Service '{0}' registered and started (binPath: {1}).", ServiceName, exePath);
             return true;
