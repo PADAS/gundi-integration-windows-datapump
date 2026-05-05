@@ -325,31 +325,20 @@ day; signing is one cert away from working:
   Re-enable the flags once that ships. License and Conclusion
   screens work and use our content already.
 
-- **The embedded web UI has no authentication or origin checking.**
-  It binds to `127.0.0.1:8080` so the LAN can't reach it, but:
-  - **Any local user account** on the box can browse to it and modify
-    configuration, trigger an update apply, or download the
-    diagnostic bundle.
-  - **A malicious website in a logged-in user's browser** could open
-    a WebSocket to the Blazor SignalR hub (cross-site WebSocket
-    hijacking) since the hub does not validate the `Origin` header.
-    Same effective access as a local-user attack.
+- **Authentication on the embedded web UI is via Windows Negotiate.**
+  All endpoints require the requester to be a member of the local
+  Administrators group. The operator's browser session passes Windows
+  credentials silently when they're already logged in as an admin
+  (the typical install flow), so there's no UI prompt for the support
+  tech. A non-admin local account or a tool without credentials gets
+  401. **Origin** validation rejects any cross-origin request (CSRF /
+  cross-site WebSocket hijacking) at the middleware layer, in addition
+  to the auth check.
 
-  For the typical "one or two trusted operators on the customer's
-  dispatch PC, no untrusted browsing on the same box" deployment
-  shape this is acceptable, but it's a real threat surface and
-  should be addressed before any customer rollout that doesn't fit
-  that shape. The fix has two parts:
-
-  1. **Auth** — pick one of: a file-based bearer token (read-
-     restricted to Administrators), Windows Negotiate auth with an
-     Administrators role check, or splitting the surface so only
-     read-only Status is anonymous.
-  2. **Origin enforcement** — validate the `Origin` header on the
-     Blazor hub (and JSON endpoints) so a cross-site WebSocket can't
-     ride a logged-in user's session.
-
-  Neither landed in PR #11; both should ship together.
+  Operator-runbook implication: the operator must launch their browser
+  while logged in as an admin user. If they `Run as administrator`
+  Edge/Chrome from a non-admin desktop session, that's enough — the
+  browser process's identity is what Negotiate sees.
 
 ### Pre-customer-rollout checklist
 

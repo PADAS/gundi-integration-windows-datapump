@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authentication.Negotiate;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging.Configuration;
 using Microsoft.Extensions.Logging.EventLog;
 using service;
@@ -205,11 +207,80 @@ internal class Program
         builder.Services.AddRazorPages();
         builder.Services.AddServerSideBlazor();
 
+        // -------------------------------------------------------------
+        // Authentication and authorization
+        // -------------------------------------------------------------
+        // Windows Negotiate (NTLM/Kerberos). When the operator's browser
+        // sends Windows credentials with an HTTP request, the handler
+        // validates them against the local OS and constructs a
+        // WindowsIdentity. We then authorize against membership in the
+        // local Administrators group.
+        //
+        // Why this works in our deployment shape: every install is done
+        // by a Padas support tech or technical advisor running with
+        // admin rights on the customer's box. Their browser session
+        // already has admin Windows credentials; Negotiate passes those
+        // in silently and the page renders. A non-admin local user
+        // (e.g., a guest account, or a malicious app running as a
+        // limited user) gets a 401.
+        //
+        // The fallback policy applies to every endpoint that doesn't
+        // explicitly opt out via [AllowAnonymous]. We don't have any
+        // such endpoints today.
+        builder.Services
+            .AddAuthentication(NegotiateDefaults.AuthenticationScheme)
+            .AddNegotiate();
+
+        builder.Services.AddAuthorization(options =>
+        {
+            options.FallbackPolicy = new AuthorizationPolicyBuilder()
+                .RequireAuthenticatedUser()
+                .RequireAssertion(ctx =>
+                {
+                    // Locale-safe Administrators check: tests against the
+                    // builtin SID, not the localized group name. RequireRole
+                    // ("BUILTIN\\Administrators") would fail on non-English
+                    // Windows installs.
+                    if (ctx.User.Identity is not WindowsIdentity wi) return false;
+                    var principal = new WindowsPrincipal(wi);
+                    return principal.IsInRole(WindowsBuiltInRole.Administrator);
+                })
+                .Build();
+        });
+
         var app = builder.Build();
+
+        // -------------------------------------------------------------
+        // Origin enforcement
+        // -------------------------------------------------------------
+        // Defense against cross-site WebSocket hijacking and CSRF: a
+        // browser tab on a malicious site could open a WebSocket to
+        // http://localhost:8080/_blazor and ride a logged-in operator's
+        // ambient Windows credentials. Reject any request whose Origin
+        // header isn't localhost (or empty, which is non-browser tooling
+        // like curl).
+        //
+        // Same-origin browser requests always include Origin matching
+        // the page's URL, so legitimate UI traffic always passes.
+        app.Use(async (ctx, next) =>
+        {
+            var origin = ctx.Request.Headers.Origin.ToString();
+            if (!string.IsNullOrEmpty(origin)
+                && !origin.StartsWith("http://localhost:", StringComparison.OrdinalIgnoreCase)
+                && !origin.StartsWith("http://127.0.0.1:",  StringComparison.OrdinalIgnoreCase))
+            {
+                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await ctx.Response.WriteAsync("Cross-origin requests are not permitted.");
+                return;
+            }
+            await next();
+        });
 
         app.UseStaticFiles();
         app.UseRouting();
-        app.MapBlazorHub();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapBlazorHub().RequireAuthorization();
 
         // Diagnostic bundle download endpoint (used by the "Download
         // diagnostic bundle" button on the Status page). Streams a fresh
@@ -234,9 +305,9 @@ internal class Program
                 bufferLimit:     2L * 1024 * 1024 * 1024); // 2 GB hard cap
             bundler.BuildBundle(buffer);
             await buffer.DrainBufferAsync(ctx.Response.Body, ctx.RequestAborted);
-        });
+        }).RequireAuthorization();
 
-        app.MapFallbackToPage("/_Host");
+        app.MapFallbackToPage("/_Host").RequireAuthorization();
 
         app.Run();
     }
