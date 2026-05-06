@@ -23,6 +23,18 @@ public static class ServiceManager
     private const string Description =
         "A Gundi/EarthRanger service that reads radio location data from a local database.";
 
+    // The embedded UI is bound to localhost:8080 (see Program.cs); the
+    // shortcut just opens the operator's default browser there. Kept
+    // in sync by hand -- if the bind ever moves off 8080 this string
+    // and the Kestrel ListenLocalhost call need to change together.
+    private const string LocalUiUrl = "http://localhost:8080/";
+
+    // Naming and location of the public-desktop shortcut. CommonDesktopDirectory
+    // is the All Users desktop -- the shortcut appears for every account on
+    // the machine, which matches the install model (technical advisor sets
+    // up once, any operator who later logs in sees the icon).
+    private const string ShortcutFileName = "Gundi Radio Service.url";
+
     /// <summary>
     /// Creates the service (or reuses an existing entry with the same
     /// name), configures recovery actions, sets the description, and
@@ -129,12 +141,86 @@ public static class ServiceManager
             }
 
             logger.Info("Service '{0}' registered and started (binPath: {1}).", ServiceName, exePath);
+
+            // Drop a "Gundi Radio Service" shortcut on the All Users desktop
+            // so the operator has an obvious one-click path to the embedded
+            // UI. Best-effort: a failure here is logged but doesn't flip
+            // the registration outcome to failure -- the service itself is
+            // up, the operator can still type the URL, the icon is a
+            // convenience.
+            try
+            {
+                EnsureDesktopShortcut(exePath);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "Failed to create desktop shortcut (service is up regardless)");
+            }
+
             return true;
         }
         catch (Exception ex)
         {
             logger.Error(ex, "Failed to register service");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Writes (or overwrites) the public-desktop .url shortcut that opens
+    /// the embedded UI. Uses the simple Internet Shortcut format -- no
+    /// WScript.Shell COM dance required, just plain text. IconFile points
+    /// at the registered exe so Windows picks up its embedded icon.
+    /// </summary>
+    private static void EnsureDesktopShortcut(string exePath)
+    {
+        var desktop = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
+        if (string.IsNullOrEmpty(desktop))
+        {
+            // GetFolderPath returns "" rather than throwing when the folder
+            // doesn't exist; on a default Windows install it always does,
+            // but guard anyway so a weird machine doesn't crash registration.
+            logger.Warn("CommonDesktopDirectory unavailable; skipping shortcut.");
+            return;
+        }
+
+        var shortcutPath = Path.Combine(desktop, ShortcutFileName);
+
+        // .url is INI-shaped: [InternetShortcut] header, URL=..., optional
+        // IconFile/IconIndex. ASCII-only on the ANSI codepage; our exe
+        // path can contain spaces but no characters that need escaping
+        // here.
+        var contents =
+            "[InternetShortcut]\r\n" +
+            $"URL={LocalUiUrl}\r\n" +
+            $"IconFile={exePath}\r\n" +
+            "IconIndex=0\r\n";
+
+        File.WriteAllText(shortcutPath, contents);
+        logger.Info("Desktop shortcut written to {0}", shortcutPath);
+    }
+
+    /// <summary>
+    /// Removes the public-desktop shortcut if present. Best-effort --
+    /// missing file is fine, IO errors during uninstall shouldn't block
+    /// the service tear-down.
+    /// </summary>
+    private static void RemoveDesktopShortcut()
+    {
+        try
+        {
+            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
+            if (string.IsNullOrEmpty(desktop)) return;
+            var shortcutPath = Path.Combine(desktop, ShortcutFileName);
+            if (File.Exists(shortcutPath))
+            {
+                File.Delete(shortcutPath);
+                logger.Info("Desktop shortcut removed from {0}", shortcutPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Warn(ex, "Failed to remove desktop shortcut (uninstall continues)");
         }
     }
 
@@ -156,6 +242,12 @@ public static class ServiceManager
                 .WithArguments(new[] { "delete", ServiceName })
                 .WithValidation(CommandResultValidation.None)
                 .ExecuteAsync();
+
+            // Drop the desktop shortcut alongside the service. We do this
+            // after sc delete rather than before so a failed unregister
+            // (rare, but possible) doesn't leave an orphan icon pointing
+            // at a still-running service.
+            RemoveDesktopShortcut();
 
             logger.Info("Service '{0}' stopped and deleted.", ServiceName);
         }
