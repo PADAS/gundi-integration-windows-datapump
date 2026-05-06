@@ -19,6 +19,39 @@ internal class Program
             return principal.IsInRole(WindowsBuiltInRole.Administrator);
         }
     }
+
+    /// <summary>
+    /// True if SCM has a service registered with our service name. Used
+    /// by the interactive-launch guard above to distinguish "operator
+    /// double-clicked the installed exe" (block) from "developer running
+    /// `dotnet run` on a dev box" (allow).
+    /// </summary>
+    private static async Task<bool> IsServiceRegisteredAsync()
+    {
+        try
+        {
+            // sc query returns:
+            //   exit 0    = service exists and was queried successfully
+            //   exit 1060 = ERROR_SERVICE_DOES_NOT_EXIST
+            //   other     = some other failure (permissions, SCM unreachable, etc.)
+            // Treating "anything but 0" as "not registered" is fine for the
+            // guard: in the worst case we let an interactive launch through
+            // when the service IS registered but we couldn't query it, and
+            // the existing port-conflict / dual-process behavior surfaces
+            // the problem in a way the operator can see.
+            var result = await Cli.Wrap("sc")
+                .WithArguments(new[] { "query", ServiceManager.ServiceName })
+                .WithValidation(CommandResultValidation.None)
+                .ExecuteAsync();
+            return result.ExitCode == 0;
+        }
+        catch
+        {
+            // sc.exe missing from PATH, or some other catastrophic failure.
+            // Same fail-open rationale as above.
+            return false;
+        }
+    }
     private static async Task Main(string[] args)
     {
         const string service_name = ServiceManager.ServiceName;
@@ -131,6 +164,49 @@ internal class Program
         // Set the current directory to the directory where the executable is located
         // which is meaningful when this is started as a service.
         Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
+
+        // ----------------------------------------------------------------
+        // Block accidental interactive launch.
+        // ----------------------------------------------------------------
+        // Velopack's MSI runs a post-install "launch the app" step, and a
+        // curious operator might also double-click RadioService.exe from
+        // the install dir. In our deployment shape, neither is correct:
+        // the binary is meant to run as a Windows Service under SCM, and
+        // any other launch produces a non-SCM-managed process that grabs
+        // port 8080 outside SCM's view -- which races the SCM-launched
+        // service for the bind, leaves SCM thinking the service is
+        // Stopped while a rogue process serves requests, and breaks
+        // every administrative gesture (sc start, Get-Service, restart
+        // on reboot) that depends on SCM being the source of truth.
+        //
+        // Detection conditions, all required:
+        //   * No command-line args -- /install, /uninstall, /configure
+        //     are still expected to work, and Velopack hook args have
+        //     already been consumed-and-exited by VelopackApp.Run() above.
+        //   * Not running as a Windows service -- when SCM launched us,
+        //     we want to proceed with the host as normal.
+        //   * The service IS registered with SCM -- if it isn't, the
+        //     operator may legitimately be running the portable build
+        //     interactively, or running `dotnet run` during dev. Don't
+        //     block those.
+        //
+        // The operator's path to the UI is the desktop shortcut (a .url
+        // pointing at http://localhost:8080/), not the exe.
+        if (args.Length == 0
+            && !Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService()
+            && await IsServiceRegisteredAsync())
+        {
+            // No console output: under MSI auto-launch we don't have a
+            // user-attached console, and creating one would just flicker
+            // a window. NLog is configured by this point and is what an
+            // operator (or support tech) would look at if they wonder
+            // why their double-click did nothing.
+            LogManager.GetCurrentClassLogger().Info(
+                "Interactive launch with no args; service is registered. Exiting -- " +
+                "the service is owned by SCM. Use the desktop shortcut or browse " +
+                "to http://localhost:8080/ to access the UI.");
+            return;
+        }
 
         if (args is { Length: 1 })
         {
