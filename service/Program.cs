@@ -1,5 +1,3 @@
-using Microsoft.AspNetCore.Authentication.Negotiate;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging.Configuration;
 using Microsoft.Extensions.Logging.EventLog;
 using service;
@@ -208,45 +206,37 @@ internal class Program
         builder.Services.AddServerSideBlazor();
 
         // -------------------------------------------------------------
-        // Authentication and authorization
+        // No authentication / authorization on the embedded UI.
         // -------------------------------------------------------------
-        // Windows Negotiate (NTLM/Kerberos). When the operator's browser
-        // sends Windows credentials with an HTTP request, the handler
-        // validates them against the local OS and constructs a
-        // WindowsIdentity. We then authorize against membership in the
-        // local Administrators group.
+        // We previously required Windows Negotiate + local-Administrators
+        // membership. That sounded right on paper but caused real friction:
+        // UAC token filtering means a regular admin user (the typical
+        // operator) authenticates with a token where the Administrators
+        // group is marked "use for deny only", so the role check returns
+        // false and the operator gets a 403 from their own browser. The
+        // workarounds (run the browser elevated, or replace IsInRole with
+        // a SID-based group walk) were each fiddly enough that the user
+        // experience for end operators wouldn't be reliable.
         //
-        // Why this works in our deployment shape: every install is done
-        // by a Padas support tech or technical advisor running with
-        // admin rights on the customer's box. Their browser session
-        // already has admin Windows credentials; Negotiate passes those
-        // in silently and the page renders. A non-admin local user
-        // (e.g., a guest account, or a malicious app running as a
-        // limited user) gets a 401.
+        // The remaining defenses are:
         //
-        // The fallback policy applies to every endpoint that doesn't
-        // explicitly opt out via [AllowAnonymous]. We don't have any
-        // such endpoints today.
-        builder.Services
-            .AddAuthentication(NegotiateDefaults.AuthenticationScheme)
-            .AddNegotiate();
-
-        builder.Services.AddAuthorization(options =>
-        {
-            options.FallbackPolicy = new AuthorizationPolicyBuilder()
-                .RequireAuthenticatedUser()
-                .RequireAssertion(ctx =>
-                {
-                    // Locale-safe Administrators check: tests against the
-                    // builtin SID, not the localized group name. RequireRole
-                    // ("BUILTIN\\Administrators") would fail on non-English
-                    // Windows installs.
-                    if (ctx.User.Identity is not WindowsIdentity wi) return false;
-                    var principal = new WindowsPrincipal(wi);
-                    return principal.IsInRole(WindowsBuiltInRole.Administrator);
-                })
-                .Build();
-        });
+        //   * Kestrel binds 127.0.0.1 only (see ConfigureKestrel above),
+        //     so the UI is unreachable from the LAN. A remote attacker
+        //     would need code execution on the box already.
+        //
+        //   * The Origin middleware below rejects any browser request
+        //     whose Origin header isn't localhost, blocking cross-site
+        //     WebSocket hijacking and CSRF from a malicious page running
+        //     in the operator's browser.
+        //
+        // What's NOT defended: a non-admin local user on the same box
+        // (e.g. a kiosk account, a logged-in guest) can browse to the UI
+        // and operate the service. Our deployment model assumes the
+        // operator who installed the service is the same person using
+        // it, on a box where untrusted local accounts don't exist. If
+        // that assumption stops holding for a customer, the right fix
+        // is to put the UI behind a reverse proxy with proper auth, not
+        // to revive the in-process Negotiate dance.
 
         var app = builder.Build();
 
@@ -278,9 +268,7 @@ internal class Program
 
         app.UseStaticFiles();
         app.UseRouting();
-        app.UseAuthentication();
-        app.UseAuthorization();
-        app.MapBlazorHub().RequireAuthorization();
+        app.MapBlazorHub();
 
         // Diagnostic bundle download endpoint (used by the "Download
         // diagnostic bundle" button on the Status page). Streams a fresh
@@ -305,9 +293,9 @@ internal class Program
                 bufferLimit:     2L * 1024 * 1024 * 1024); // 2 GB hard cap
             bundler.BuildBundle(buffer);
             await buffer.DrainBufferAsync(ctx.Response.Body, ctx.RequestAborted);
-        }).RequireAuthorization();
+        });
 
-        app.MapFallbackToPage("/_Host").RequireAuthorization();
+        app.MapFallbackToPage("/_Host");
 
         app.Run();
     }
