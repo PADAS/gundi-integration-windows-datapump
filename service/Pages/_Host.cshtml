@@ -77,6 +77,13 @@
             cursor: pointer;
         }
         #components-reconnect-modal button:hover { background: #0077ed; }
+        #components-reconnect-modal button:disabled { background: #888; cursor: default; }
+        #components-reconnect-modal .reconnect-status {
+            margin: 0.75rem 0 0;
+            font-size: 0.85rem;
+            color: #888;
+            min-height: 1.2em;  /* reserve space so layout doesn't shift */
+        }
         /*
             Per-state visibility. The "Reconnecting..." block shows during
             retries; the "Refresh page" block replaces it once Blazor has
@@ -128,12 +135,73 @@
                     The service may have restarted as part of an update. Refresh
                     the page to continue.
                 </p>
-                <button type="button" onclick="window.location.reload()">
+                <button type="button" id="reconnect-refresh-btn"
+                        onclick="reloadWhenServiceIsUp()">
                     Refresh page
                 </button>
+                <p class="reconnect-status" id="reconnect-refresh-status"></p>
             </div>
         </div>
     </div>
+
+    <script>
+        @*
+            Smart-refresh helper used by the reconnect modal's button.
+            Naively calling window.location.reload() too soon during an
+            update lands on the same dead state -- the new service hasn't
+            bound port 8080 yet, the browser cache serves the old shell,
+            or the request fails with connection-refused. So instead of
+            reloading immediately, we poll a cheap GET to "/" (cache
+            bypassed) until the server responds, then reload.
+
+            Behaviour:
+              * Disable the button so the operator can't queue multiple
+                clicks while we poll.
+              * Surface live status under the button -- "Waiting for
+                service... (5s)" -- so the operator can see something is
+                happening rather than wondering if the click took.
+              * 1-second poll cadence. Cheap requests; tab is otherwise
+                idle.
+              * 3-minute hard cap. After that, reload anyway -- gives
+                the operator a fresh state to work with even if
+                something went catastrophically wrong server-side.
+        *@
+        async function reloadWhenServiceIsUp() {
+            const button = document.getElementById('reconnect-refresh-btn');
+            const status = document.getElementById('reconnect-refresh-status');
+            button.disabled = true;
+            const start = Date.now();
+            const hardCapMs = 3 * 60 * 1000;
+
+            while (Date.now() - start < hardCapMs) {
+                const elapsed = Math.round((Date.now() - start) / 1000);
+                status.textContent = 'Waiting for service to come back… (' + elapsed + 's)';
+                try {
+                    const r = await fetch('/', {
+                        method: 'GET',
+                        cache: 'no-store',
+                        redirect: 'manual'
+                    });
+                    @* Any non-5xx response means the new service is
+                       answering. Treat 0 (opaqueredirect) and any 2xx/3xx/4xx
+                       as success since we just want a live socket. *@
+                    if (r.status === 0 || (r.status >= 200 && r.status < 500)) {
+                        window.location.reload();
+                        return;
+                    }
+                } catch (e) {
+                    @* Connection refused, fetch aborted, etc. -- keep
+                       polling silently. *@
+                }
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+            @* 3 minutes elapsed without a successful probe. Reload
+               anyway; the operator gets a clear failure mode (server
+               truly down) instead of staring at a "Waiting..." spinner. *@
+            window.location.reload();
+        }
+    </script>
 
     <script src="_framework/blazor.server.js" autostart="false"></script>
     <script>
