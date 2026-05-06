@@ -242,11 +242,34 @@ internal class Program
         }
 
         // ----------------------------------------------------------------
+        // Per-install operator data path (config + pump state) lives under
+        // %PROGRAMDATA% so it survives Velopack updates that wholesale-
+        // replace the binaries directory. Wire StateHandler's PathResolver
+        // here so the readers in app/ — which all do
+        // `new StateHandler("state.json")` — get redirected without each
+        // having to know about per-install data dirs.
+        // ----------------------------------------------------------------
+        DataPump.StateHandler.PathResolver =
+            relative => Path.Combine(AppPaths.DataDirectory, relative);
+        AppPaths.EnsureDataDirectoryExists();
+
+        // ----------------------------------------------------------------
         // Web host: BackgroundService (the pump) + Blazor Server (the UI)
         // share a process. Bound to localhost only — the embedded UI is
         // for the operator on this box, not the network.
         // ----------------------------------------------------------------
         var builder = WebApplication.CreateBuilder(args);
+
+        // Layer the persisted appsettings.json from %PROGRAMDATA% on top
+        // of the default config sources so anything reading IConfiguration
+        // (e.g. UpdateService["Updates:FeedUrl"]) sees the operator's
+        // overrides. The default WebApplication config sources only look
+        // in AppContext.BaseDirectory — which no longer carries the live
+        // appsettings.json after this commit.
+        builder.Configuration.AddJsonFile(
+            AppPaths.ConfigFilePath,
+            optional: true,
+            reloadOnChange: true);
 
         builder.WebHost.ConfigureKestrel(opts =>
         {

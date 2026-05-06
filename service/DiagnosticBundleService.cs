@@ -98,7 +98,9 @@ public class DiagnosticBundleService
 
     private void AddRedactedAppSettings(ZipArchive zip)
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        // Operator config lives in %PROGRAMDATA% so it survives updates --
+        // see AppPaths for the rationale.
+        var path = AppPaths.ConfigFilePath;
         if (!File.Exists(path)) return;
 
         var raw = File.ReadAllText(path);
@@ -112,7 +114,8 @@ public class DiagnosticBundleService
 
     private static void AddStateFile(ZipArchive zip)
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "state.json");
+        // Pump cursor lives alongside the config under %PROGRAMDATA%.
+        var path = AppPaths.StateFilePath;
         if (!File.Exists(path)) return;
 
         var entry = zip.CreateEntry("state.json", CompressionLevel.Optimal);

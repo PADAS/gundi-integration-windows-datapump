@@ -15,9 +15,25 @@ namespace DataPump
         private State _state;
         private static Logger logger = LogManager.GetCurrentClassLogger();
 
+        /// <summary>
+        /// Optional hook the host application can install at startup to
+        /// redirect the state file out of whatever path the reader passes
+        /// to the constructor (typically the literal "state.json", which
+        /// would otherwise resolve relative to the current working
+        /// directory). The Windows Service host installs this at startup
+        /// so state.json lives under %PROGRAMDATA% and survives Velopack
+        /// updates that wipe the binaries directory.
+        ///
+        /// When null (test harness, legacy console runner, or any caller
+        /// that hasn't opted in), the constructor uses the supplied path
+        /// as-is — preserves the original behavior for callers that don't
+        /// know about per-install data dirs.
+        /// </summary>
+        public static Func<string, string>? PathResolver { get; set; }
+
         public StateHandler(string filePath)
         {
-            stateFilePath = filePath;
+            stateFilePath = PathResolver?.Invoke(filePath) ?? filePath;
         }
 
         // Save program state to a JSON file

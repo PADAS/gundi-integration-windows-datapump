@@ -17,6 +17,10 @@ using System.Text.Json.Nodes;
 /// JSON parsing is tolerant of comments and trailing commas to match what
 /// IConfiguration accepts at runtime. A hand-edited file the running
 /// service was happy with shouldn't suddenly be unsavable here.
+///
+/// Storage location: <see cref="AppPaths.ConfigFilePath"/>, which lives
+/// under %PROGRAMDATA% so the file survives Velopack updates that
+/// wholesale-replace the binaries directory.
 /// </summary>
 public class ConfigService
 {
@@ -34,10 +38,10 @@ public class ConfigService
 
     public ConfigService()
     {
-        // appsettings.json sits next to the exe. Program.cs sets the working
-        // directory to AppContext.BaseDirectory, so a relative path is fine
-        // both when running interactively and when running as a service.
-        _path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        // %PROGRAMDATA%\GundiRadioService\appsettings.json. Outside the
+        // install directory so it isn't clobbered when Velopack swaps
+        // current/ on update. See AppPaths for full rationale.
+        _path = AppPaths.ConfigFilePath;
     }
 
     /// <summary>
@@ -98,6 +102,11 @@ public class ConfigService
         // Replace only the RouteConfiguration subtree.
         var serialized = JsonSerializer.SerializeToNode(config, JsonOpts);
         root["RouteConfiguration"] = serialized;
+
+        // First-run case: the %PROGRAMDATA%\GundiRadioService\ folder
+        // doesn't exist yet on a fresh install. Create it before writing
+        // (idempotent, no-op on subsequent saves).
+        AppPaths.EnsureDataDirectoryExists();
 
         // Atomic write: temp file + replace, so a crash mid-write never
         // leaves the operator with a truncated config file.

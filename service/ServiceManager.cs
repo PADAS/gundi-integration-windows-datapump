@@ -47,6 +47,24 @@ public static class ServiceManager
     {
         try
         {
+            // Migrate any operator data sitting next to the previously-
+            // registered service exe BEFORE we overwrite SCM's binPath. A
+            // legacy install (pre-Velopack, pre-PROGRAMDATA-data-path) kept
+            // appsettings.json + state.json next to the exe; the new code
+            // path reads/writes them under %PROGRAMDATA% so they survive
+            // future updates. By doing this here -- inside RegisterAsync,
+            // before sc config rewrites binPath -- we still have a
+            // reliable pointer to where the legacy data lives. Once
+            // binPath has been overwritten, the trail is gone.
+            //
+            // This block is idempotent: MigrateLegacyDataIfNeeded checks
+            // whether the destination already has files (in which case it
+            // does nothing) and renames the legacy source files to .stale
+            // after a successful copy so a future run won't re-migrate
+            // and a curious admin can see at a glance which files are no
+            // longer authoritative.
+            await MigrateLegacyDataIfNeededAsync();
+
             // sc.exe argument layout note: pass `binpath=` as one argv slot
             // and the path as a SEPARATE argv slot. CliWrap quotes the path
             // automatically when it contains spaces (e.g. "Program Files
@@ -211,6 +229,160 @@ public static class ServiceManager
 
         File.WriteAllText(shortcutPath, contents);
         logger.Info("Desktop shortcut written to {0}", shortcutPath);
+    }
+
+    /// <summary>
+    /// One-time migration of operator data (appsettings.json, state.json)
+    /// from a legacy install location to <see cref="AppPaths.DataDirectory"/>.
+    /// Called from <see cref="RegisterAsync"/> before binPath is rewritten
+    /// — the only moment we still have a reliable pointer to where the
+    /// previous install kept its data.
+    ///
+    /// Migration is gated on the destination being EMPTY: if
+    /// %PROGRAMDATA%\GundiRadioService\appsettings.json already exists,
+    /// the operator has either already been migrated or has populated
+    /// data via the wizard, and we don't touch anything. The destination's
+    /// existence is the sole "have we done this" marker — no separate
+    /// flag file required.
+    ///
+    /// On a successful copy, the legacy source file is renamed to
+    /// "<name>.stale" rather than deleted. This:
+    ///   * Removes the footgun where an admin edits the legacy file
+    ///     thinking it's the live config (it isn't anymore).
+    ///   * Preserves the original data as a manual recovery option.
+    ///   * Makes the migration visible — a tech looking at the legacy
+    ///     directory immediately sees what happened.
+    ///
+    /// All steps are best-effort: a failure here logs but does not flip
+    /// the overall registration outcome to failure. Worst case, the
+    /// operator runs the wizard once.
+    /// </summary>
+    private static async Task MigrateLegacyDataIfNeededAsync()
+    {
+        try
+        {
+            var legacyDir = await TryGetLegacyInstallDirectoryAsync();
+            if (legacyDir is null)
+            {
+                // No prior service registration -- fresh install, nothing
+                // to migrate. Wizard will populate %PROGRAMDATA% on first
+                // save.
+                return;
+            }
+            if (string.Equals(
+                    Path.GetFullPath(legacyDir),
+                    Path.GetFullPath(AppPaths.DataDirectory),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                // Pathological but possible: legacy install was somehow
+                // pointed at %PROGRAMDATA% itself. Don't try to copy a
+                // file onto itself.
+                return;
+            }
+
+            AppPaths.EnsureDataDirectoryExists();
+            MigrateOneFile(legacyDir, AppPaths.ConfigFileName);
+            MigrateOneFile(legacyDir, AppPaths.StateFileName);
+        }
+        catch (Exception ex)
+        {
+            logger.Warn(ex, "Legacy data migration failed; service registration continues. " +
+                            "Operator can run the first-run wizard to (re)create config.");
+        }
+    }
+
+    /// <summary>
+    /// Reads the existing service's binPath from SCM (if registered) and
+    /// returns the directory it points at, which is where any legacy
+    /// appsettings.json / state.json would have been kept. Returns null
+    /// if the service isn't registered, or if sc.exe output can't be
+    /// parsed.
+    /// </summary>
+    private static async Task<string?> TryGetLegacyInstallDirectoryAsync()
+    {
+        // Run sc.exe directly via Process.Start so we can capture stdout
+        // (CliWrap's PipeStdoutTo path would also work but a throwaway
+        // Process.Start is simpler here, and we only need a one-shot
+        // read). Exit codes 0 = service exists, 1060 = doesn't exist.
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "sc.exe",
+            Arguments = $"qc \"{ServiceName}\"",
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        using var p = System.Diagnostics.Process.Start(psi);
+        if (p is null) return null;
+        var stdout = await p.StandardOutput.ReadToEndAsync();
+        await p.WaitForExitAsync();
+        if (p.ExitCode != 0) return null;
+
+        // Look for "BINARY_PATH_NAME : <path>". sc.exe pads with spaces
+        // and may surround the path with quotes if it contains them
+        // (today's bug -- separately fixed). Strip surrounding quotes
+        // defensively so this works on installs registered by any
+        // historical version of our code.
+        const string marker = "BINARY_PATH_NAME";
+        var idx = stdout.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return null;
+        var lineEnd = stdout.IndexOf('\n', idx);
+        var line = lineEnd < 0 ? stdout[idx..] : stdout[idx..lineEnd];
+
+        var colonIdx = line.IndexOf(':');
+        if (colonIdx < 0) return null;
+        var raw = line[(colonIdx + 1)..].Trim().Trim('"').Trim();
+        if (string.IsNullOrEmpty(raw)) return null;
+
+        var dir = Path.GetDirectoryName(raw);
+        return string.IsNullOrEmpty(dir) ? null : dir;
+    }
+
+    /// <summary>
+    /// Copy <paramref name="fileName"/> from the legacy install directory
+    /// to <see cref="AppPaths.DataDirectory"/>, then rename the legacy
+    /// source to "<paramref name="fileName"/>.stale". Skips if the
+    /// destination already exists or the source is missing.
+    /// </summary>
+    private static void MigrateOneFile(string legacyDir, string fileName)
+    {
+        var src = Path.Combine(legacyDir, fileName);
+        var dst = Path.Combine(AppPaths.DataDirectory, fileName);
+
+        if (File.Exists(dst))
+        {
+            // Destination wins. Either we already migrated (and the
+            // legacy source might still be sitting unrenamed for some
+            // reason), or the operator ran the wizard already. Don't
+            // overwrite live data.
+            return;
+        }
+        if (!File.Exists(src))
+        {
+            return;
+        }
+
+        File.Copy(src, dst, overwrite: false);
+        logger.Info("Migrated legacy {0}: {1} -> {2}", fileName, src, dst);
+
+        var stale = src + ".stale";
+        try
+        {
+            // If a previous (possibly aborted) migration already left a
+            // .stale, replace it; the source we just copied from is the
+            // newer and authoritative version of "what was live before."
+            if (File.Exists(stale)) File.Delete(stale);
+            File.Move(src, stale);
+            logger.Info("Renamed legacy {0} to {1}", src, stale);
+        }
+        catch (Exception ex)
+        {
+            // Rename failure is not fatal -- the destination is in place,
+            // the operator's data is migrated. We just couldn't deactivate
+            // the legacy file. Log and move on.
+            logger.Warn(ex, "Could not rename legacy {0} to .stale; leaving in place. " +
+                            "Operator may want to delete it manually to avoid confusion.", src);
+        }
     }
 
     /// <summary>
