@@ -112,40 +112,28 @@ internal class Program
             })
             .OnAfterUpdateFastCallback(v =>
             {
-                // After Velopack's updater applies the file swap it
-                // respawns the new exe -- but as an ordinary process,
-                // not as the SCM-managed service. The previous service
-                // process exited gracefully (StopApplication, exit 0)
-                // which doesn't trigger SCM's failure-restart actions,
-                // so SCM still believes the service is "Stopped." If we
-                // continued through Main here we'd run a web host as a
-                // detached LocalSystem process, and on the next reboot
-                // SCM wouldn't know to start anything.
+                // SCM restart is handled by the orchestrator started in
+                // UpdateService.ApplyAsync (cmd.exe runs Update.exe apply
+                // and then `sc start` only after Update.exe has fully
+                // finished). Don't call sc start from here -- doing so
+                // races Velopack's own post-hook cleanup, which scans
+                // for any RadioService.exe processes still running and
+                // kills them. The hook fires sc start, SCM begins
+                // launching the service, Velopack's cleanup spots the
+                // newly-spawned RadioService.exe and force-kills it.
+                // SCM is then in an inconsistent state until the
+                // orchestrator's own sc start brings the service back.
                 //
-                // Defensive fix: tell SCM to start the service, then
-                // exit. SCM spawns the service in its proper context
-                // (the new exe, the same registered binPath, fresh
-                // service-mode lifecycle) and the SCM-spawned instance
-                // becomes the running service. Our just-started
-                // post-update process exits cleanly without binding
-                // 8080, so there's no port collision.
-                var hookLog = LogManager.GetCurrentClassLogger();
-                hookLog.Info($"Updated to {v}; signalling SCM to start the service.");
-
-                var start = Cli.Wrap("sc")
-                    .WithArguments(new[] { "start", ServiceManager.ServiceName })
-                    .WithValidation(CommandResultValidation.None)
-                    .ExecuteAsync().GetAwaiter().GetResult();
-
-                if (start.ExitCode != 0)
-                {
-                    // 1056 = service already running. That's fine -- just
-                    // means SCM beat us to it (or kept the old process
-                    // alive somehow). Log and proceed.
-                    hookLog.Info("sc start exit code {0} (1056 = already running, ignored).",
-                        start.ExitCode);
-                }
-
+                // Net effect either way is "service ends up running",
+                // but the kill-and-respawn cycle is unnecessary and was
+                // a real diagnostic distraction (apply.log shows the
+                // kill, radioservice.log shows the respawn, and a
+                // reader has to reconstruct the dance to convince
+                // themselves it's correct). Letting the orchestrator be
+                // the only sc start path is cleaner.
+                LogManager.GetCurrentClassLogger().Info(
+                    "Velopack OnAfterUpdate: updated to {0}. " +
+                    "Service restart handled by the apply orchestrator.", v);
                 exitAfterHook = true;
             })
             .Run();
