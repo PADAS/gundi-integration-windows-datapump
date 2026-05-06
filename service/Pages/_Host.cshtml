@@ -11,54 +11,160 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gundi Radio Service</title>
     <base href="~/" />
+    <style>
+        /*
+            Reconnect modal. Blazor toggles classes on this element to
+            signal connection state:
+              .components-reconnect-show     -- trying to reconnect
+              .components-reconnect-hide     -- reconnected (or never lost)
+              .components-reconnect-failed   -- gave up after maxRetries
+              .components-reconnect-rejected -- server refused the reconnect
+                                                 (e.g. circuit no longer
+                                                 exists, which is what
+                                                 happens after our service
+                                                 restarts for an update)
+
+            Default styles below:
+              * Hidden in .components-reconnect-hide (default for fresh load).
+              * Spinner-style "Reconnecting..." in .components-reconnect-show.
+              * Refresh-page button in .components-reconnect-failed and
+                .components-reconnect-rejected. The button is the
+                authoritative recovery path -- after a service restart for
+                an update, the server-side circuit is gone for good and a
+                full page load is the only way back.
+        */
+        #components-reconnect-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.45);
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+            font-family: -apple-system, "Segoe UI", sans-serif;
+        }
+        #components-reconnect-modal.components-reconnect-show,
+        #components-reconnect-modal.components-reconnect-failed,
+        #components-reconnect-modal.components-reconnect-rejected {
+            display: flex;
+        }
+        #components-reconnect-modal .reconnect-dialog {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem 2rem;
+            max-width: 24rem;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+            text-align: center;
+        }
+        #components-reconnect-modal .reconnect-dialog h3 {
+            margin-top: 0;
+            font-size: 1.05rem;
+            font-weight: 500;
+            color: #1d1d1f;
+        }
+        #components-reconnect-modal .reconnect-dialog p {
+            color: #555;
+            line-height: 1.5;
+            margin: 0.5rem 0 1rem;
+        }
+        #components-reconnect-modal button {
+            background: #0071e3;
+            color: white;
+            border: none;
+            padding: 0.5rem 1.25rem;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            cursor: pointer;
+        }
+        #components-reconnect-modal button:hover { background: #0077ed; }
+        /*
+            Per-state visibility. The "Reconnecting..." block shows during
+            retries; the "Refresh page" block replaces it once Blazor has
+            given up.
+        */
+        #components-reconnect-modal .reconnect-trying { display: block; }
+        #components-reconnect-modal .reconnect-failed { display: none; }
+        #components-reconnect-modal.components-reconnect-failed .reconnect-trying,
+        #components-reconnect-modal.components-reconnect-rejected .reconnect-trying {
+            display: none;
+        }
+        #components-reconnect-modal.components-reconnect-failed .reconnect-failed,
+        #components-reconnect-modal.components-reconnect-rejected .reconnect-failed {
+            display: block;
+        }
+    </style>
 </head>
 <body>
     <component type="typeof(App)" render-mode="ServerPrerendered" />
 
     @*
-        Disable Blazor's auto-start so we can configure the SignalR
-        client's reconnect policy before it kicks off. Default policy
-        is 8 attempts with exponential backoff topping out around
-        ~30 seconds; that's not enough to ride out a Velopack update,
-        which can take longer than that between "old service stops"
-        and "new service binds 8080" (Update.exe's swap, the post-
-        hook scan, our orchestrator's sc start, SCM's launch).
+        Reconnect overlay -- styled and populated above. Two distinct
+        visual states share the same dialog:
 
-        Custom policy: keep retrying for ~3 minutes with a backoff
-        that caps at 5 seconds, so an idle operator's tab reconnects
-        on its own instead of leaving them staring at the "Update
-        downloaded" message wondering if it worked.
+          1. .reconnect-trying  shown while Blazor retries the SignalR
+                                 connection (handles transient network
+                                 blips, machine sleep). Operator sees a
+                                 brief "Reconnecting..." spinner-style
+                                 message and the modal vanishes if the
+                                 retry succeeds.
+
+          2. .reconnect-failed  shown when Blazor gives up. After a
+                                 service restart for an update, the
+                                 server-side circuit is gone for good --
+                                 reattach is impossible -- so the only
+                                 recovery is a full page reload. The
+                                 button is unambiguous and labels the
+                                 situation honestly.
     *@
+    <div id="components-reconnect-modal">
+        <div class="reconnect-dialog">
+            <div class="reconnect-trying">
+                <h3>Reconnecting…</h3>
+                <p>The connection to the service was lost. Trying to reconnect.</p>
+            </div>
+            <div class="reconnect-failed">
+                <h3>Connection lost</h3>
+                <p>
+                    The service may have restarted as part of an update. Refresh
+                    the page to continue.
+                </p>
+                <button type="button" onclick="window.location.reload()">
+                    Refresh page
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script src="_framework/blazor.server.js" autostart="false"></script>
     <script>
-        // Helper used by Status.razor's "Apply update" handler. Schedules
-        // a hard reload independent of the SignalR circuit's lifetime.
-        //
-        // Why we need this: Blazor Server keeps per-tab UI state (the
-        // "circuit") on the server. When the service restarts for an
-        // update, every circuit is destroyed; even after the SignalR
-        // transport successfully reconnects to the new server, the
-        // circuit reattach step fails because the new server has no
-        // memory of the old circuit ID. Default Blazor UI is a small
-        // "Reload" link, which operators miss. A scheduled
-        // window.location.reload() runs from the BROWSER's setTimeout
-        // and fires regardless of what happens to the circuit, so the
-        // page recovers automatically.
-        window.scheduleReload = function (delayMs) {
-            setTimeout(function () { window.location.reload(); }, delayMs);
-        };
+        @*
+            Configure the Blazor Server SignalR client.
 
+              * logLevel = Critical (5): suppresses the routine reconnect
+                noise (the "Failed to complete negotiation..." flood that
+                the SignalR client logs at Error level when the server is
+                briefly unreachable). The browser's own
+                "POST .../negotiate net::ERR_CONNECTION_REFUSED" lines
+                cannot be suppressed from script -- those come from the
+                browser's network panel mirroring failed fetches -- but
+                fewer retries (below) means fewer of them.
+
+              * maxRetries = 5: short enough that a service restart
+                surfaces the "Refresh page" button quickly; long enough
+                to handle a genuine network blip before nagging the
+                operator. With the backoff below this works out to about
+                10-15 seconds before Blazor gives up.
+
+              * retryIntervalMilliseconds: gentle backoff capping at 3s.
+                The early retries are fast for snappy recovery, the
+                later ones don't flood the console.
+        *@
         Blazor.start({
+            logLevel: 5,
             reconnectionOptions: {
-                // Generous retry window for the WebSocket reconnect. The
-                // circuit-reattach problem is handled separately via the
-                // scheduleReload helper above, but a wider retry window
-                // here helps for scenarios that AREN'T a service restart
-                // (brief network blip, machine sleep, etc.) where the
-                // circuit IS still alive on the server.
-                maxRetries: 60,
+                maxRetries: 5,
                 retryIntervalMilliseconds: function (attempt) {
-                    return Math.min(attempt * 1000, 5000);
+                    return Math.min((attempt + 1) * 1000, 3000);
                 }
             }
         });

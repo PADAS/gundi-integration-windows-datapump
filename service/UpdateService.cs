@@ -225,8 +225,8 @@ public class UpdateService
             _ = DelayThenStopAsync(_lifetime, TimeSpan.FromSeconds(2));
 
             return new UpdateApplyOutcome(true,
-                "Update downloaded. The service is restarting on the new version; " +
-                "this page will reload automatically in about 30 seconds.");
+                "Update downloaded. The service is restarting on the new version. " +
+                "When the connection drops, click 'Refresh page' to reload on the new build.");
         }
         catch (Exception ex)
         {

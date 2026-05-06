@@ -2,7 +2,6 @@
 @inject PumpStatus Pump
 @inject UpdateService Updater
 @inject ConfigService ConfigSvc
-@inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>Status — Gundi Radio Service</PageTitle>
@@ -258,29 +257,12 @@
         _applyMessage = null;
         try
         {
-            // Schedule a hard browser reload BEFORE we tell the backend to
-            // apply. Two reasons it has to happen on this side of the call:
-            //
-            //  1. The circuit will die during the restart. Blazor Server
-            //     keeps per-tab state on the SERVER, so when the service
-            //     stops the circuit is gone. Even after SignalR reconnects,
-            //     the new server can't reattach to the old circuit ID and
-            //     the page is dead until the operator notices the small
-            //     "Reload" link Blazor shows in the corner.
-            //
-            //  2. setTimeout in the browser is independent of the SignalR
-            //     transport. The timer keeps ticking while the service is
-            //     down. By the time it fires, the orchestrator's `sc start`
-            //     has long since brought the new build up, and the reload
-            //     gets a fresh circuit on the new version with no operator
-            //     intervention.
-            //
-            // 30 seconds is comfortably longer than the orchestration
-            // timeline observed in apply.log (download already done by
-            // here, so the remaining work is the swap + hooks + sc start
-            // + bind, typically 10-20s).
-            await JS.InvokeVoidAsync("scheduleReload", 30000);
-
+            // Recovery from the inevitable circuit loss is handled by the
+            // reconnect modal in _Host.cshtml: when Blazor gives up
+            // reconnecting (the server-side circuit is destroyed when the
+            // service restarts and can't be reattached), the operator
+            // sees a "Refresh page" button. No work to do here beyond
+            // kicking off the apply and surfacing the response.
             var outcome = await Updater.ApplyAsync();
             _applyMessage = outcome.Message;
             _applySuccess = outcome.Success;
