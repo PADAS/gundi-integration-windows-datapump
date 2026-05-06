@@ -1,9 +1,29 @@
 @page "/"
 @inject PumpStatus Pump
 @inject UpdateService Updater
+@inject ConfigService ConfigSvc
 @implements IDisposable
 
 <PageTitle>Status — Gundi Radio Service</PageTitle>
+
+@if (_unconfigured)
+{
+    @*
+        First-run banner. Surfaces the wizard prominently when the
+        service has nothing useful to do yet (no reader type set, or
+        no destinations configured). Goes away the moment the operator
+        finishes Setup and we get a config with both halves filled in.
+    *@
+    <div class="card setup-cta">
+        <h2>Welcome — let's get the service running</h2>
+        <p>
+            The Gundi Radio Service is installed but not yet configured.
+            The setup wizard will walk you through pointing it at your
+            source database and adding at least one Gundi destination.
+        </p>
+        <a href="/setup" class="primary-button">Set up the service</a>
+    </div>
+}
 
 <div class="card">
     <h2>Pump status</h2>
@@ -149,6 +169,9 @@
     .hint { color: #888; font-size: 0.9rem; margin: 0; }
     a.primary-button { display: inline-block; background: #0071e3; color: white; padding: 0.5rem 1.25rem; border-radius: 6px; text-decoration: none; font-size: 0.95rem; }
     a.primary-button:hover { background: #0077ed; }
+    .setup-cta { background: #fff8e1; border: 1px solid #ffe082; }
+    .setup-cta h2 { color: #5d4037; }
+    .setup-cta p { line-height: 1.5; margin: 0.5rem 0 1rem; }
 </style>
 
 @code {
@@ -165,14 +188,29 @@
     // Server's diff mechanism turns "no changes" into a no-op on the wire.
     private System.Threading.Timer? _ticker;
 
+    // True when we've never been pointed at a real database or have no
+    // destinations to send to -- in either case the pump can't do
+    // anything useful and the operator should be nudged to /setup.
+    // Recomputed on each status change so finishing the wizard makes
+    // the CTA disappear without needing a hard page refresh.
+    private bool _unconfigured;
+
     protected override void OnInitialized()
     {
+        RefreshUnconfigured();
         Pump.Changed += OnStatusChanged;
         _ticker = new System.Threading.Timer(
             _ => OnStatusChanged(),
             state: null,
             dueTime: TimeSpan.FromSeconds(1),
             period: TimeSpan.FromSeconds(1));
+    }
+
+    private void RefreshUnconfigured()
+    {
+        var cfg = ConfigSvc.LoadRouteConfig();
+        _unconfigured = cfg.DatabaseType is null
+                        || (cfg.gundiConnections?.Count ?? 0) == 0;
     }
 
     private void OnStatusChanged()
@@ -182,7 +220,11 @@
         // frame and tear down the Blazor circuit; assigning to discard
         // keeps it as a Task whose faults route through Blazor's normal
         // unhandled-task handling.
-        _ = InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(() =>
+        {
+            RefreshUnconfigured();
+            StateHasChanged();
+        });
     }
 
     private void OnTogglePause()

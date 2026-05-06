@@ -1,12 +1,23 @@
 @inherits LayoutComponentBase
+@inject NavigationManager Nav
+@implements IDisposable
 
 <header>
     <h1>Gundi Radio Service</h1>
-    <nav>
-        <NavLink href="" Match="NavLinkMatch.All">Status</NavLink>
-        <NavLink href="config">Configuration</NavLink>
-        <NavLink href="logs">Logs</NavLink>
-    </nav>
+    @*
+        Hide the secondary nav while the operator is in the first-run
+        wizard. Showing "Configuration" alongside "Setup" invites the
+        user to bail out halfway and end up with a half-configured
+        service. The nav reappears as soon as they leave /setup.
+    *@
+    @if (!_inWizard)
+    {
+        <nav>
+            <NavLink href="" Match="NavLinkMatch.All">Status</NavLink>
+            <NavLink href="config">Configuration</NavLink>
+            <NavLink href="logs">Logs</NavLink>
+        </nav>
+    }
 </header>
 
 <main>
@@ -41,3 +52,31 @@
     .dismiss { background: none; color: #856404; border: none; padding: 0 0.5rem; cursor: pointer; font-size: 1.2rem; line-height: 1; }
     .dismiss:hover { background: rgba(133, 100, 4, 0.1); border-radius: 4px; color: #856404; }
 </style>
+
+@code {
+    private bool _inWizard;
+
+    protected override void OnInitialized()
+    {
+        Nav.LocationChanged += OnLocationChanged;
+        UpdateInWizard(Nav.Uri);
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        UpdateInWizard(e.Location);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdateInWizard(string url)
+    {
+        var path = Nav.ToBaseRelativePath(url);
+        _inWizard = path.Equals("setup", StringComparison.OrdinalIgnoreCase)
+                    || path.StartsWith("setup/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+}

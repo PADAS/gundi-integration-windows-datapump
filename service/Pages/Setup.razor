@@ -1,0 +1,490 @@
+@page "/setup"
+@using System.ComponentModel.DataAnnotations
+@inject ConfigService ConfigSvc
+@inject PumpController Controller
+@inject NavigationManager Nav
+
+<PageTitle>Setup — Gundi Radio Service</PageTitle>
+
+@*
+    First-run wizard. Walks a fresh installer through the minimum
+    viable configuration: the source database, then any number of
+    Gundi destinations (zero is OK -- the operator may pause here
+    to fetch an API key and come back). On finish it persists to
+    appsettings.json and triggers a hot-reload, the same path the
+    manual Configuration page uses.
+
+    Round-trips the same DbFormModel / DestinationFormModel /
+    GroupAliasFormModel that Config.razor uses so behaviour matches
+    the manual page exactly. Step UI is intentionally minimal:
+    monochrome cards, no progress bar, just a "Back" / "Next" pair
+    at the bottom of each step. Test Connection is a soft gate --
+    we encourage the operator to use it but don't block Next.
+*@
+
+<div class="card setup-card">
+    <div class="step-header">
+        <span class="step-counter">Step @_step of 4</span>
+        <h2>@StepTitle()</h2>
+    </div>
+
+    @if (_step == 1)
+    {
+        <div class="welcome">
+            <p>This wizard will help you configure the Gundi Radio Service. We'll walk through:</p>
+            <ul class="welcome-bullets">
+                <li>The <strong>source database</strong> the service reads radio location data from.</li>
+                <li>One or more <strong>Gundi destinations</strong> the service forwards observations to.</li>
+                <li>A quick <strong>verification step</strong> before saving, so you don't have to dig through logs to find out a typo broke the pump.</li>
+            </ul>
+            <p class="hint">You can skip the destinations step and come back later (e.g., if you still need to fetch an API key from Gundi). The pump will idle until at least one destination is configured.</p>
+        </div>
+
+        <div class="nav-actions">
+            <button type="button" class="secondary" @onclick="OnBack">Cancel</button>
+            <button type="button" @onclick="OnWelcomeNext">Get started</button>
+        </div>
+    }
+    else if (_step == 2)
+    {
+        <EditForm Model="@_dbForm" OnValidSubmit="OnDatabaseStepNext">
+            <DataAnnotationsValidator />
+
+            <div class="field">
+                <label>Reader type</label>
+                <InputSelect @bind-Value="_dbForm.ReaderTypeValue" class="input">
+                    <option value="-1">— select —</option>
+                    @foreach (var r in service.RadioDataPumpService.supportedReaders)
+                    {
+                        <option value="@((int)r.Type)">@r.Name</option>
+                    }
+                </InputSelect>
+                <ValidationMessage For="@(() => _dbForm.ReaderTypeValue)" />
+            </div>
+
+            <div class="field">
+                <label>Hostname</label>
+                <InputText @bind-Value="_dbForm.Hostname" class="input" placeholder="localhost" />
+                <ValidationMessage For="@(() => _dbForm.Hostname)" />
+            </div>
+
+            <div class="field">
+                <label>Database name</label>
+                <InputText @bind-Value="_dbForm.DatabaseName" class="input" />
+                <ValidationMessage For="@(() => _dbForm.DatabaseName)" />
+            </div>
+
+            <div class="field">
+                <label>Username</label>
+                <InputText @bind-Value="_dbForm.Username" class="input" />
+                <ValidationMessage For="@(() => _dbForm.Username)" />
+            </div>
+
+            <div class="field">
+                <label>Password</label>
+                <InputText @bind-Value="_dbForm.NewPassword" class="input" type="password" />
+            </div>
+
+            <div class="field">
+                <label>Schema <small class="hint">(PostgreSQL readers only)</small></label>
+                <InputText @bind-Value="_dbForm.DatabaseSchema" class="input" placeholder="public" />
+            </div>
+
+            <div class="step-actions">
+                <button type="button" class="secondary" @onclick="OnTestConnection" disabled="@_testing">
+                    @(_testing ? "Testing…" : "Test connection")
+                </button>
+                @if (_testResult is not null)
+                {
+                    <span class="@(_testResult.Success ? "saved-msg" : "error-msg")">
+                        @(_testResult.Success ? "✓" : "✗") @_testResult.Message
+                    </span>
+                }
+            </div>
+
+            <div class="nav-actions">
+                <button type="button" class="secondary" @onclick="OnBack">Back</button>
+                <button type="submit">Next</button>
+            </div>
+        </EditForm>
+    }
+    else if (_step == 3)
+    {
+        <p class="hint" style="margin-top: 0;">
+            Add the Gundi or EarthRanger destinations the pump should forward observations to.
+            You can add zero destinations now and come back later from the Configuration page;
+            the pump will idle until at least one destination is configured.
+        </p>
+
+        @if (_destinations.Count == 0)
+        {
+            <p style="color: #888; font-style: italic;">No destinations yet.</p>
+        }
+        else
+        {
+            @for (int i = 0; i < _destinations.Count; i++)
+            {
+                int idx = i;
+                var dest = _destinations[idx];
+                <div class="destination-card">
+                    <div class="destination-header">
+                        <h3>@(string.IsNullOrWhiteSpace(dest.ConnectionName) ? "(unnamed)" : dest.ConnectionName)</h3>
+                        <button type="button" class="link-danger" @onclick="() => OnRemoveDestination(idx)">
+                            Remove
+                        </button>
+                    </div>
+
+                    <div class="field">
+                        <label>Name</label>
+                        <InputText @bind-Value="dest.ConnectionName" class="input" />
+                    </div>
+
+                    <div class="field">
+                        <label>URL</label>
+                        <InputText @bind-Value="dest.Destination" class="input" placeholder="https://..." />
+                    </div>
+
+                    <div class="field">
+                        <label>API key</label>
+                        <InputText @bind-Value="dest.NewApiKey" class="input" type="password" />
+                        <div class="api-key-actions">
+                            <small class="hint">Paste the API key Gundi gave you for this destination.</small>
+                            <button type="button" class="link-secondary"
+                                    @onclick="() => OnTestApiKey(idx)"
+                                    disabled="@dest.Testing">
+                                @(dest.Testing ? "Testing…" : "Test API key")
+                            </button>
+                        </div>
+                        @if (dest.LastTestResult is { } tr)
+                        {
+                            <span class="@(tr.Success ? "saved-msg" : "error-msg")" style="margin-top: 0.5rem; display: inline-block;">
+                                @(tr.Success ? "✓" : "✗") @tr.Message
+                            </span>
+                        }
+                    </div>
+
+                    <div class="field">
+                        <label class="checkbox-label">
+                            <InputCheckbox @bind-Value="dest.SendEverything" />
+                            Send all observations to this destination
+                        </label>
+                        <small class="hint">
+                            Leave on for typical setups. Group filters can be configured later
+                            from the Configuration page.
+                        </small>
+                    </div>
+                </div>
+            }
+        }
+
+        <button type="button" class="secondary" @onclick="OnAddDestination" style="margin-top: 0.5rem;">
+            + Add destination
+        </button>
+
+        @if (_destinationErrors.Count > 0)
+        {
+            <div class="error-list">
+                @foreach (var err in _destinationErrors)
+                {
+                    <div class="error-msg">@err</div>
+                }
+            </div>
+        }
+
+        <div class="nav-actions">
+            <button type="button" class="secondary" @onclick="OnBack">Back</button>
+            <button type="button" @onclick="OnDestinationsStepNext">Next</button>
+        </div>
+    }
+    else if (_step == 4)
+    {
+        <p>Ready to save:</p>
+        <ul class="summary">
+            <li><strong>Reader type:</strong> @ReaderName(_dbForm.ReaderTypeValue)</li>
+            <li><strong>Database:</strong> @_dbForm.Username@@@_dbForm.Hostname/@_dbForm.DatabaseName</li>
+            <li><strong>Destinations:</strong>
+                @if (_destinations.Count == 0)
+                {
+                    <em>none yet — pump will idle until you add one.</em>
+                }
+                else
+                {
+                    @($"{_destinations.Count} configured")
+                }
+            </li>
+        </ul>
+
+        @if (_saveError is not null)
+        {
+            <div class="error-msg" style="margin-top: 0.75rem;">@_saveError</div>
+        }
+
+        <div class="nav-actions">
+            <button type="button" class="secondary" @onclick="OnBack" disabled="@_saving">Back</button>
+            <button type="button" @onclick="OnFinish" disabled="@_saving">
+                @(_saving ? "Saving…" : "Finish")
+            </button>
+        </div>
+    }
+</div>
+
+<style>
+    .setup-card { max-width: 720px; margin: 0 auto; }
+    .step-header { margin-bottom: 1.25rem; }
+    .step-counter { display: block; color: #888; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
+    .step-header h2 { margin: 0; }
+    .welcome p { line-height: 1.5; }
+    .welcome-bullets { line-height: 1.6; padding-left: 1.25rem; }
+    .field { margin-bottom: 1rem; }
+    .field label { display: block; font-size: 0.9rem; color: #555; margin-bottom: 0.25rem; }
+    .input { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d2d2d7; border-radius: 6px; font-size: 1rem; box-sizing: border-box; }
+    .input:focus { outline: none; border-color: #0071e3; }
+    .hint { color: #888; font-size: 0.85rem; font-weight: normal; }
+    .saved-msg { color: #155724; background: #d4edda; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.9rem; }
+    .error-msg { color: #721c24; background: #f8d7da; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.9rem; }
+    button.secondary { background: white; color: #1d1d1f; border: 1px solid #d2d2d7; }
+    button.secondary:hover { background: #f5f5f7; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .step-actions { margin-top: 1rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+    .nav-actions { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #eee; display: flex; justify-content: space-between; gap: 0.75rem; }
+    .destination-card { border: 1px solid #e5e5e7; border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; background: #fafafa; }
+    .destination-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+    .destination-header h3 { margin: 0; font-size: 1rem; font-weight: 500; }
+    .checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal; }
+    .link-danger { background: none; color: #b00020; border: none; padding: 0.25rem 0.5rem; cursor: pointer; font-size: 0.9rem; }
+    .link-secondary { background: none; color: #0071e3; border: none; padding: 0.25rem 0.5rem; cursor: pointer; font-size: 0.9rem; }
+    .api-key-actions { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-top: 0.25rem; flex-wrap: wrap; }
+    .error-list { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+    .summary { line-height: 1.7; }
+    .validation-message { color: #b00020; font-size: 0.85rem; margin-top: 0.25rem; }
+</style>
+
+@code {
+    private int _step = 1;
+    private DbFormModel _dbForm = new();
+    private List<DestinationFormModel> _destinations = new();
+    private List<string> _destinationErrors = new();
+    private bool _testing;
+    private TestResult? _testResult;
+    private bool _saving;
+    private string? _saveError;
+
+    protected override void OnInitialized()
+    {
+        // Pre-populate from whatever is in appsettings.json today, so an
+        // operator who half-completed setup last time picks up where they
+        // left off rather than starting over. New installs see a fresh
+        // form because LoadRouteConfig returns a default RouteConfiguration
+        // when the section is missing.
+        var current = ConfigSvc.LoadRouteConfig();
+        _dbForm = DbFormModel.From(current);
+        _destinations = (current.gundiConnections ?? new())
+            .Select(DestinationFormModel.From)
+            .ToList();
+    }
+
+    private string StepTitle() => _step switch
+    {
+        1 => "Welcome",
+        2 => "Source database",
+        3 => "Gundi destinations",
+        4 => "Review & save",
+        _ => "",
+    };
+
+    private string ReaderName(int value)
+    {
+        var reader = service.RadioDataPumpService.supportedReaders
+            .FirstOrDefault(r => (int)r.Type == value);
+        return reader?.Name ?? "(not selected)";
+    }
+
+    private void OnBack()
+    {
+        if (_step == 1)
+        {
+            // Step 1 has no "previous" page in the wizard; send the user
+            // to the Status page so the back action is never a no-op.
+            Nav.NavigateTo("/");
+            return;
+        }
+        _step--;
+        // Clear transient state that doesn't make sense on revisit.
+        _testResult = null;
+        _saveError = null;
+        _destinationErrors.Clear();
+    }
+
+    private void OnNext()
+    {
+        _step++;
+        _testResult = null;
+        _saveError = null;
+        _destinationErrors.Clear();
+    }
+
+    // Step 1: Welcome -> Database
+    private void OnWelcomeNext() => OnNext();
+
+    // Step 2: Database. OnValidSubmit fires only when DataAnnotations pass.
+    // Test Connection is a soft gate -- we don't refuse Next on a failed
+    // probe, but the user has seen the result and chosen to proceed.
+    private void OnDatabaseStepNext()
+    {
+        OnNext();
+    }
+
+    // Step 3: Destinations. Validate (same rules as Config.razor) but
+    // allow zero destinations -- the operator may legitimately pause here.
+    private void OnDestinationsStepNext()
+    {
+        _destinationErrors = ValidateDestinations(_destinations);
+        if (_destinationErrors.Count > 0) return;
+        OnNext();
+    }
+
+    // Step 4: Save. Same persistence path as Config.razor's OnSave.
+    private async Task OnFinish()
+    {
+        _saving = true;
+        _saveError = null;
+        try
+        {
+            var existing = ConfigSvc.LoadRouteConfig();
+            RouteConfiguration updated;
+            try
+            {
+                updated = _dbForm.ToRouteConfig(existingPassword: existing.Password);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _saveError = ex.Message;
+                _step = 2;  // bounce back to the database step
+                return;
+            }
+            updated.gundiConnections = _destinations.Select(d => d.ToConnection()).ToList();
+
+            ConfigSvc.SaveRouteConfig(updated);
+            Controller.RequestReload();
+
+            // Brief pause so the operator sees the "Saving..." flash --
+            // SaveRouteConfig and RequestReload return synchronously and
+            // a 0ms transition feels like the button didn't do anything.
+            await Task.Delay(250);
+
+            Nav.NavigateTo("/", forceLoad: false);
+        }
+        catch (Exception ex)
+        {
+            _saveError = $"{ex.GetType().Name}: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void OnAddDestination()
+    {
+        _destinations.Add(new DestinationFormModel());
+        _destinationErrors.Clear();
+    }
+
+    private void OnRemoveDestination(int index)
+    {
+        if (index < 0 || index >= _destinations.Count) return;
+        _destinations.RemoveAt(index);
+        _destinationErrors.Clear();
+    }
+
+    private async Task OnTestConnection()
+    {
+        _testResult = null;
+        if (_dbForm.ReaderTypeValue < 0)
+        {
+            _testResult = new TestResult(false, "Pick a reader type first.");
+            return;
+        }
+
+        _testing = true;
+        try
+        {
+            var existing = ConfigSvc.LoadRouteConfig();
+            var probeConfig = _dbForm.ToRouteConfig(existingPassword: existing.Password);
+            _testResult = await Task.Run(() =>
+            {
+                using var reader = service.RadioDataPumpService.CreateReader(probeConfig);
+                return reader.TestConnection();
+            });
+        }
+        catch (Exception ex)
+        {
+            _testResult = new TestResult(false, $"{ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+
+    private async Task OnTestApiKey(int destIdx)
+    {
+        if (destIdx < 0 || destIdx >= _destinations.Count) return;
+        var dest = _destinations[destIdx];
+
+        if (string.IsNullOrWhiteSpace(dest.Destination))
+        {
+            dest.LastTestResult = new TestResult(false, "Enter a destination URL first.");
+            return;
+        }
+        var keyToProbe = string.IsNullOrEmpty(dest.NewApiKey) ? (dest.ExistingApiKey ?? "") : dest.NewApiKey;
+        if (string.IsNullOrEmpty(keyToProbe))
+        {
+            dest.LastTestResult = new TestResult(false, "Enter an API key to test.");
+            return;
+        }
+
+        dest.Testing = true;
+        dest.LastTestResult = null;
+        try
+        {
+            dest.LastTestResult = await Task.Run(async () =>
+            {
+                var probe = new GundiV2DataWriter(dest.Destination!, keyToProbe);
+                return await probe.TestConnection();
+            });
+        }
+        catch (Exception ex)
+        {
+            dest.LastTestResult = new TestResult(false, $"{ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            dest.Testing = false;
+        }
+    }
+
+    // Same shape as Config.razor's ValidateDestinations -- we want the
+    // "leave blank" rules, alias rules, and dupe-guid rules to behave
+    // identically in the wizard and the manual page. Zero destinations
+    // is allowed by virtue of the for-loop simply not executing.
+    private static List<string> ValidateDestinations(List<DestinationFormModel> dests)
+    {
+        var errs = new List<string>();
+        for (int i = 0; i < dests.Count; i++)
+        {
+            var d = dests[i];
+            var label = string.IsNullOrWhiteSpace(d.ConnectionName)
+                ? $"Destination #{i + 1}"
+                : d.ConnectionName;
+            if (string.IsNullOrWhiteSpace(d.ConnectionName))
+                errs.Add($"{label}: name is required.");
+            if (string.IsNullOrWhiteSpace(d.Destination))
+                errs.Add($"{label}: URL is required.");
+            if (!d.ApiKeySet && string.IsNullOrWhiteSpace(d.NewApiKey))
+                errs.Add($"{label}: API key is required.");
+        }
+        return errs;
+    }
+}
+
