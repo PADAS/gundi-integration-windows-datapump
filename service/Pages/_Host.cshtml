@@ -15,6 +15,37 @@
 <body>
     <component type="typeof(App)" render-mode="ServerPrerendered" />
 
-    <script src="_framework/blazor.server.js"></script>
+    @*
+        Disable Blazor's auto-start so we can configure the SignalR
+        client's reconnect policy before it kicks off. Default policy
+        is 8 attempts with exponential backoff topping out around
+        ~30 seconds; that's not enough to ride out a Velopack update,
+        which can take longer than that between "old service stops"
+        and "new service binds 8080" (Update.exe's swap, the post-
+        hook scan, our orchestrator's sc start, SCM's launch).
+
+        Custom policy: keep retrying for ~3 minutes with a backoff
+        that caps at 5 seconds, so an idle operator's tab reconnects
+        on its own instead of leaving them staring at the "Update
+        downloaded" message wondering if it worked.
+    *@
+    <script src="_framework/blazor.server.js" autostart="false"></script>
+    <script>
+        Blazor.start({
+            reconnectionOptions: {
+                // ~3 minutes total. Far longer than any reasonable update
+                // window; if it still hasn't reconnected by then,
+                // something is genuinely wrong and a manual refresh is
+                // the right next step.
+                maxRetries: 60,
+                retryIntervalMilliseconds: function (attempt) {
+                    // 0s, 1s, 2s, 3s, then steady 5s -- keeps the early
+                    // attempts snappy for a fast restart, doesn't flood
+                    // the server during a longer one.
+                    return Math.min(attempt * 1000, 5000);
+                }
+            }
+        });
+    </script>
 </body>
 </html>
