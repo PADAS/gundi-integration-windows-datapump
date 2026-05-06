@@ -47,17 +47,28 @@ public static class ServiceManager
     {
         try
         {
-            // Quote the exe path so SCM treats it as a single token. Most
-            // installs land in "C:\Program Files\..." or
-            // "C:\Program Files (x86)\..." which contain spaces; without
-            // the quotes, sc.exe leaves the unquoted path in registry and
-            // the next service start fails with "file not found".
+            // sc.exe argument layout note: pass `binpath=` as one argv slot
+            // and the path as a SEPARATE argv slot. CliWrap quotes the path
+            // automatically when it contains spaces (e.g. "Program Files
+            // (x86)"), so SCM receives the path cleanly with no embedded
+            // quote characters.
+            //
+            // The previous form passed a single combined arg
+            //   $"binPath= \"{exePath}\""
+            // which CliWrap re-escaped as "binPath= \"C:\\...\"". sc.exe's
+            // parser then stored the value WITH the literal quote
+            // characters as part of the binPath, and SCM's CreateProcess
+            // failed with ERROR_INVALID_PARAMETER (87) because it couldn't
+            // find a file literally named "C:\Program Files...".
+            //
+            // Same correction applies to `start=auto` and `displayname=`
+            // below: keyword and value go in separate argv slots.
             var create = await Cli.Wrap("sc")
                 .WithArguments(new[] {
                     "create", ServiceName,
-                    $"binPath= \"{exePath}\"",
-                    "start=auto",
-                    $"displayname={ServiceName}"
+                    "binPath=", exePath,
+                    "start=", "auto",
+                    "displayname=", ServiceName,
                 })
                 .WithValidation(CommandResultValidation.None)
                 .ExecuteAsync();
@@ -79,12 +90,14 @@ public static class ServiceManager
             // so a fresh registration corrects any drift.
             if (create.ExitCode == 1073)
             {
+                // Same separate-argv-slot pattern as `sc create` above --
+                // see the long comment there for why combined args break.
                 var config = await Cli.Wrap("sc")
                     .WithArguments(new[] {
                         "config", ServiceName,
-                        $"binPath= \"{exePath}\"",
-                        "start=auto",
-                        $"displayname={ServiceName}"
+                        "binPath=", exePath,
+                        "start=", "auto",
+                        "displayname=", ServiceName,
                     })
                     .WithValidation(CommandResultValidation.None)
                     .ExecuteAsync();
