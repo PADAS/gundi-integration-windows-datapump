@@ -19,6 +19,7 @@
 #   .\publish-velopack.ps1                  # full release flow
 #   .\publish-velopack.ps1 -SkipUpload      # build + pack only, no GCS push
 #   .\publish-velopack.ps1 -BumpPatch       # auto-increment patch in Version.props before building
+#   .\publish-velopack.ps1 -Force           # overwrite an existing release at the same version (vpk --yes)
 #   .\publish-velopack.ps1 -SignParams "/a /tr http://ts /td sha256 /fd sha256"
 #
 # Prereqs:
@@ -35,6 +36,7 @@ param(
     [string]$VelopackPrefix = 'velopack',
     [switch]$SkipUpload,
     [switch]$BumpPatch,
+    [switch]$Force,
     [string]$SignParams
 )
 
@@ -253,6 +255,19 @@ if (Test-Path $conclusionPath) { $packArgs += @('--instConclusion', $conclusionP
 if ($SignParams) {
     Write-Host "       (signing enabled)"
     $packArgs += @('--signParams', $SignParams)
+}
+
+# -Force: when a release at the same version already exists in the local
+# mirror (typically because step 2 just rsynced it down from GCS), vpk pack
+# prompts interactively for overwrite confirmation. The prompt has a short
+# timeout and defaults to "no", which causes the script to fail without
+# producing artifacts. Passing --yes accepts the overwrite up front. Use
+# this when you mean to re-publish the same version (e.g. fixing a broken
+# artifact minutes after the original publish); for ordinary releases,
+# -BumpPatch is the right tool.
+if ($Force) {
+    Write-Host "       (force-overwriting existing release at v$version)"
+    $packArgs += '--yes'
 }
 & vpk @packArgs
 if ($LASTEXITCODE -ne 0) { throw "vpk pack failed (exit $LASTEXITCODE)" }
