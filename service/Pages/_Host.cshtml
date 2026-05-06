@@ -31,17 +31,33 @@
     *@
     <script src="_framework/blazor.server.js" autostart="false"></script>
     <script>
+        // Helper used by Status.razor's "Apply update" handler. Schedules
+        // a hard reload independent of the SignalR circuit's lifetime.
+        //
+        // Why we need this: Blazor Server keeps per-tab UI state (the
+        // "circuit") on the server. When the service restarts for an
+        // update, every circuit is destroyed; even after the SignalR
+        // transport successfully reconnects to the new server, the
+        // circuit reattach step fails because the new server has no
+        // memory of the old circuit ID. Default Blazor UI is a small
+        // "Reload" link, which operators miss. A scheduled
+        // window.location.reload() runs from the BROWSER's setTimeout
+        // and fires regardless of what happens to the circuit, so the
+        // page recovers automatically.
+        window.scheduleReload = function (delayMs) {
+            setTimeout(function () { window.location.reload(); }, delayMs);
+        };
+
         Blazor.start({
             reconnectionOptions: {
-                // ~3 minutes total. Far longer than any reasonable update
-                // window; if it still hasn't reconnected by then,
-                // something is genuinely wrong and a manual refresh is
-                // the right next step.
+                // Generous retry window for the WebSocket reconnect. The
+                // circuit-reattach problem is handled separately via the
+                // scheduleReload helper above, but a wider retry window
+                // here helps for scenarios that AREN'T a service restart
+                // (brief network blip, machine sleep, etc.) where the
+                // circuit IS still alive on the server.
                 maxRetries: 60,
                 retryIntervalMilliseconds: function (attempt) {
-                    // 0s, 1s, 2s, 3s, then steady 5s -- keeps the early
-                    // attempts snappy for a fast restart, doesn't flood
-                    // the server during a longer one.
                     return Math.min(attempt * 1000, 5000);
                 }
             }
