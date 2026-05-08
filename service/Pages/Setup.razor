@@ -410,18 +410,31 @@
             return;
         }
         _step--;
-        // Clear transient state that doesn't make sense on revisit.
-        _testResult = null;
-        _saveError = null;
-        _destinationErrors.Clear();
+        ClearTransientStepState();
     }
 
     private void OnNext()
     {
         _step++;
+        ClearTransientStepState();
+    }
+
+    /// <summary>
+    /// Reset the per-step ephemeral fields that shouldn't carry over a
+    /// step transition. Includes the alias picker's open state and
+    /// cached results -- without that reset, an operator who opens the
+    /// picker on step 3, navigates back to step 2 to tweak DB
+    /// settings, then comes forward again, would see the picker still
+    /// open with stale results that don't reflect the new DB form.
+    /// </summary>
+    private void ClearTransientStepState()
+    {
         _testResult = null;
         _saveError = null;
         _destinationErrors.Clear();
+        _pickerOpenForDest = null;
+        _availableAliases = null;
+        _aliasFetchError = null;
     }
 
     // Step 1: Welcome -> Database
@@ -583,6 +596,11 @@
 
     private async Task OnOpenPicker(int destIdx)
     {
+        // Same bounds check as the other destination handlers in this
+        // file. The buttons that fire this only render with a valid
+        // index, but a tampered request body could send anything.
+        if (destIdx < 0 || destIdx >= _destinations.Count) return;
+
         // Transitioning from "no picker open" to "open" means the user
         // may have edited DB form fields since the last fetch -- drop
         // the cache so we re-query against the current values.
@@ -639,6 +657,15 @@
     private async Task EnsureAliasesFetched()
     {
         if (_availableAliases is not null) return;
+
+        // Re-entrancy guard. Without this, an operator who quickly
+        // opens the picker on dest A and then dest B before the first
+        // fetch completes could trigger two concurrent DB connections.
+        // The in-flight fetch will populate _availableAliases when it
+        // completes; both pickers (whichever is currently open) then
+        // render the result.
+        if (_fetchingAliases) return;
+
         if (_dbForm.ReaderTypeValue < 0)
         {
             _aliasFetchError = "Pick a reader type first (step 2).";
