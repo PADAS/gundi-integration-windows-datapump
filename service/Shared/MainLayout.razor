@@ -31,8 +31,14 @@
 
         Sections, in order:
           1. Page chrome (body, header, nav, main, .card)
-          2. Status-page primitives (.stat, .badge, .error, .dismiss)
-          3. Buttons -- primary, .secondary, :disabled
+          2. Status-page primitives (.stat, .badge, .error)
+          3. Buttons -- the bare `button` rule defines the
+             primary blue style; .secondary and :disabled are
+             modifiers; .dismiss overrides for the icon-style
+             error-banner close button. .dismiss is declared
+             AFTER the generic button rules so source order
+             tips any specificity tie in its favour, even on
+             properties it doesn't explicitly override.
           4. Form primitives (.field, .input, .hint, .saved-msg,
              .error-msg, .checkbox-label, .section-divider,
              .validation-message, .error-list, .link-danger,
@@ -72,8 +78,6 @@
     .error { background: #fff3cd; color: #856404; padding: 0.75rem 1rem; border-radius: 6px; margin-top: 0.75rem; }
     .error-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem; }
     .error-body { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; word-break: break-word; }
-    .dismiss { background: none; color: #856404; border: none; padding: 0 0.5rem; cursor: pointer; font-size: 1.2rem; line-height: 1; }
-    .dismiss:hover { background: rgba(133, 100, 4, 0.1); border-radius: 4px; color: #856404; }
 
     /* 3. Buttons */
     button { background: #0071e3; color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; font-size: 0.95rem; cursor: pointer; }
@@ -81,6 +85,13 @@
     button:disabled { opacity: 0.6; cursor: not-allowed; }
     button.secondary { background: white; color: #1d1d1f; border: 1px solid #d2d2d7; }
     button.secondary:hover { background: #f5f5f7; }
+    /* .dismiss must come after the generic `button` rules so source
+       order reinforces class-specificity. Without this ordering,
+       properties .dismiss doesn't override (e.g. border-radius)
+       inherit from the generic button rule -- a 6px corner radius
+       on what's meant to be a flat icon. */
+    .dismiss { background: none; color: #856404; border: none; padding: 0 0.5rem; cursor: pointer; font-size: 1.2rem; line-height: 1; border-radius: 4px; }
+    .dismiss:hover { background: rgba(133, 100, 4, 0.1); color: #856404; }
 
     /* 4. Form primitives */
     .field { margin-bottom: 1rem; }
