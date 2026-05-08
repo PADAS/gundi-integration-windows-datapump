@@ -23,7 +23,12 @@ That bypass is available because the operator has admin rights, but using it rou
    ```
 2. **Land commits on the feature branch.**
 3. **Push the branch and open a PR via `gh pr create`.** Use the GitHub CLI rather than the web UI so the PR title and body are version-controlled in the agent's transcript.
-4. **Merge happens via the PR**, not via a direct push to `main`.
+4. **Always request Copilot review on every PR.** Add this immediately after creating the PR:
+   ```bash
+   gh pr edit <pr-number> --add-reviewer copilot-pull-request-reviewer
+   ```
+   The reviewer slug is `copilot-pull-request-reviewer` (the bare `Copilot` slug fails with *"Could not resolve user with login 'copilot'"* via the GraphQL API). Copilot's automated review runs on the diff and catches things a human reviewer would too — typos, missed null checks, inconsistent error handling, etc. — so always solicit it. The operator can still review themselves; Copilot's pass is additive, not a substitute.
+5. **Merge happens via the PR**, not via a direct push to `main`.
 
 ### When direct-push is OK
 
