@@ -177,15 +177,21 @@
     // an index would drift, an instance reference doesn't.
     private DestinationFormModel? _pickerOpenForDest;
 
-    // Cache-generation token. Bumped whenever the cache is invalidated
-    // (currently in OnOpenPicker when transitioning from "no picker
-    // open" to "open"). EnsureAliasesFetched captures the current value
-    // before kicking off its DB query and refuses to write its result if
-    // the value has changed by the time the query returns -- so an
-    // in-flight fetch that the operator invalidated by closing,
-    // editing the DB form, and re-opening the picker doesn't repopulate
-    // the cache with stale data.
+    // Cache-generation token. Bumped by InvalidateAliasCache() whenever
+    // the cache becomes stale (picker re-opened with possibly-new DB
+    // form values, or config saved). EnsureAliasesFetched snapshots
+    // the value before kicking off its DB query and refuses to write
+    // its result if the token has changed by the time the query returns.
     private int _fetchGeneration;
+
+    // Reference to the in-flight fetch Task, if any. A second
+    // EnsureAliasesFetched call awaits this rather than just bailing on
+    // the boolean -- otherwise a stale-then-discarded result would
+    // leave the picker permanently empty (the early-return on
+    // _fetchingAliases skips the call, and the in-flight task's gen
+    // mismatch suppresses its write, so nothing populates the cache
+    // and no follow-up fetch is triggered).
+    private Task? _inFlightFetch;
 
     protected override void OnInitialized()
     {
@@ -287,19 +293,29 @@
         // since the source DB is the same for the whole page.
         if (_pickerOpenForDest is null)
         {
-            _availableAliases = null;
-            _aliasFetchError = null;
-
-            // Bump the fetch generation so any in-flight EnsureAliasesFetched
-            // that hasn't returned yet will discard its result rather than
-            // repopulate the cache we just cleared. _fetchingAliases is
-            // intentionally left alone -- the in-flight fetch's finally
-            // block resets it, and our re-entrancy guard then lets a fresh
-            // fetch start once the stale one returns.
-            _fetchGeneration++;
+            InvalidateAliasCache();
         }
         _pickerOpenForDest = dest;
         await EnsureAliasesFetched();
+    }
+
+    /// <summary>
+    /// The single point where the alias cache becomes stale. Any code
+    /// that nulls <c>_availableAliases</c> should go through here so
+    /// the generation token gets bumped in lockstep -- otherwise an
+    /// in-flight fetch can come back AFTER the null and write its
+    /// (now-stale) result back into the cache.
+    ///
+    /// Called from <see cref="OnOpenPicker"/> on first-open after a
+    /// closed period, and from <see cref="OnSave"/> after persisting
+    /// (since saved DB settings may differ from what we cached
+    /// aliases against).
+    /// </summary>
+    private void InvalidateAliasCache()
+    {
+        _availableAliases = null;
+        _aliasFetchError = null;
+        _fetchGeneration++;
     }
 
     private void OnClosePicker()
@@ -343,13 +359,24 @@
     {
         if (_availableAliases is not null) return;
 
-        // Re-entrancy guard. Without this, an operator who quickly
-        // opens the picker on dest A and then dest B before the first
-        // fetch completes could trigger two concurrent DB connections.
-        // The in-flight fetch will populate _availableAliases when it
-        // completes; both pickers (whichever is currently open) then
-        // render the result.
-        if (_fetchingAliases) return;
+        // If a fetch is in flight, wait for it. Two outcomes:
+        //   * Its generation still matches when it returns -> cache
+        //     is populated. We see _availableAliases is not null on
+        //     the next check and return.
+        //   * Its generation no longer matches (cache was invalidated
+        //     mid-flight) -> the in-flight call discards its result;
+        //     _availableAliases stays null, so we fall through to
+        //     start a fresh fetch on the new generation.
+        // This is the load-bearing fix for the close+edit+reopen race:
+        // a bare `if (_fetchingAliases) return;` would leave the
+        // picker permanently empty when the in-flight result got
+        // discarded as stale, because nothing would re-trigger.
+        if (_inFlightFetch is { } pending)
+        {
+            try { await pending; }
+            catch { /* the in-flight call handled its own error UI */ }
+            if (_availableAliases is not null) return;
+        }
 
         if (_form.ReaderTypeValue < 0)
         {
@@ -357,27 +384,31 @@
             return;
         }
 
-        // Snapshot the cache generation. If OnOpenPicker (or any future
-        // invalidator) bumps it while we're awaiting the fetch -- e.g.
-        // the operator closes the picker, edits the DB form, and
-        // reopens before the original DB query returns -- our result
-        // is stale and we drop it on the floor instead of overwriting
+        // Snapshot the cache generation BEFORE kicking off the DB
+        // query. If InvalidateAliasCache (called from OnOpenPicker
+        // or OnSave) bumps it while we're awaiting, our result is
+        // stale and we drop it on the floor instead of overwriting
         // whatever fresh state replaced it.
         var generation = _fetchGeneration;
+        var existing = ConfigSvc.LoadRouteConfig();
+        var probeConfig = _form.ToRouteConfig(existingPassword: existing.Password);
+
         _fetchingAliases = true;
         _aliasFetchError = null;
+
+        // Off-thread: GetGroupAliases opens a real DB connection.
+        // Stash the task in _inFlightFetch so a concurrent
+        // EnsureAliasesFetched can await it instead of skipping past
+        // and missing the populate.
+        var task = Task.Run(() =>
+        {
+            using var reader = service.RadioDataPumpService.CreateReader(probeConfig);
+            return reader.GetGroupAliases();
+        });
+        _inFlightFetch = task;
         try
         {
-            var existing = ConfigSvc.LoadRouteConfig();
-            var probeConfig = _form.ToRouteConfig(existingPassword: existing.Password);
-
-            // Off-thread: GetGroupAliases opens a real DB connection.
-            var result = await Task.Run(() =>
-            {
-                using var reader = service.RadioDataPumpService.CreateReader(probeConfig);
-                return reader.GetGroupAliases();
-            });
-
+            var result = await task;
             if (generation != _fetchGeneration) return;
             _availableAliases = result;
         }
@@ -389,6 +420,9 @@
         }
         finally
         {
+            // Only clear the slot if it's still ours -- a follow-up
+            // EnsureAliasesFetched may have already replaced it.
+            if (ReferenceEquals(_inFlightFetch, task)) _inFlightFetch = null;
             _fetchingAliases = false;
         }
     }
@@ -432,9 +466,11 @@
         foreach (var d in _destinations) d.AcceptApiKey();
 
         // The saved DB may differ from what we cached aliases against.
-        // Invalidate so the next picker open re-fetches.
-        _availableAliases = null;
-        _aliasFetchError = null;
+        // Invalidate so the next picker open re-fetches. Going through
+        // the helper bumps the fetch generation too, so an
+        // EnsureAliasesFetched mid-Save can't write its (pre-Save)
+        // result back into the cache after we cleared it.
+        InvalidateAliasCache();
 
         _passwordSet = !string.IsNullOrEmpty(updated.Password);
         _form.NewPassword = "";
