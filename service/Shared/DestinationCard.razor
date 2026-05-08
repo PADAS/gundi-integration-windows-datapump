@@ -5,11 +5,15 @@
     in sync as the editor evolves.
 
     The component owns the markup and the wiring of inputs to
-    DestinationFormModel; the parent owns the state mutation
-    (adding/removing destinations and aliases, fetching the
-    picker's available groups). Each user gesture surfaces as an
-    EventCallback so the parent can clear validation errors,
-    invalidate caches, or trigger StateHasChanged as needed.
+    DestinationFormModel. Text inputs and the "send everything"
+    checkbox bind directly to Dest via @bind-Value -- Blazor's
+    two-way binding mutates the model in place without a
+    callback. Button actions (Remove, Test API key, Add manually,
+    Pick from database, Close, etc.) surface as EventCallbacks so
+    the parent can clear validation errors, invalidate caches, or
+    trigger state mutation it owns (the destinations list, the
+    picker's open-card pointer, the page-scoped alias-fetch
+    cache).
 
     The picker UI is part of this component but its data is page-
     scoped (all destinations on a page share one fetch result),

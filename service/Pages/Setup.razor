@@ -427,7 +427,13 @@
     private void OnRemoveDestination(int index)
     {
         if (index < 0 || index >= _destinations.Count) return;
+        var removed = _destinations[index];
         _destinations.RemoveAt(index);
+        // If the operator removes the destination whose picker is open,
+        // null out _pickerOpenForDest so it doesn't dangle as a stale
+        // reference -- otherwise the next OnOpenPicker won't take its
+        // "no picker open" code path on the new card.
+        if (ReferenceEquals(_pickerOpenForDest, removed)) _pickerOpenForDest = null;
         _destinationErrors.Clear();
     }
 
@@ -557,11 +563,10 @@
         _destinationErrors.Clear();
     }
 
-    private bool IsAliasPicked(int destIdx, GroupAlias avail)
-    {
-        if (destIdx < 0 || destIdx >= _destinations.Count) return false;
-        return _destinations[destIdx].GroupAliases.Any(a => a.Guid == avail.guid);
-    }
+    // (IsAliasPicked moved into <DestinationCard> -- it's now computed
+    // locally by the component from its own Dest.GroupAliases, so the
+    // page no longer needs a callback for the "is this alias already
+    // picked?" check.)
 
     /// <summary>
     /// Fetches available group aliases from the configured source DB
