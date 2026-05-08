@@ -187,7 +187,11 @@
                         {
                             int aliasIdx = j;
                             var alias = dest.GroupAliases[aliasIdx];
-                            <div class="alias-row">
+                            @* @key keys each row by the alias model instance so removing
+                               an alias from the middle of the list doesn't trigger Blazor
+                               DOM/component reuse for adjacent rows -- without it, input
+                               values or focus could appear to "jump" between rows. *@
+                            <div class="alias-row" @key="alias">
                                 <InputText @bind-Value="alias.Guid" placeholder="GUID" class="input" />
                                 <InputText @bind-Value="alias.Alias" placeholder="Display name" class="input" />
                                 <button type="button" class="link-danger" title="Remove this alias"
@@ -705,8 +709,17 @@
         }
         catch (Exception ex)
         {
+            // Log the full exception (with stack + DB connection details
+            // in ex.Message) so support can diagnose from the diagnostic
+            // bundle. The UI gets a sanitized message -- DB exceptions
+            // from Npgsql / SqlClient routinely embed hostnames,
+            // database names, and usernames in the message text and
+            // those don't belong in a screenshot.
+            NLog.LogManager.GetCurrentClassLogger()
+                .Warn(ex, "Failed to fetch group aliases from source DB.");
             if (generation != _fetchGeneration) return;
-            _aliasFetchError = $"{ex.GetType().Name}: {ex.Message}";
+            _aliasFetchError = "Could not fetch group aliases. " +
+                "Check the database settings on step 2 and the service log for details.";
             _availableAliases = null;
         }
         finally
