@@ -25,6 +25,28 @@
 </main>
 
 <style>
+    /*
+        Global styles for the embedded UI. MainLayout wraps every routed
+        page so anything declared here is available app-wide.
+
+        Sections, in order:
+          1. Page chrome (body, header, nav, main, .card)
+          2. Status-page primitives (.stat, .badge, .error, .dismiss)
+          3. Buttons -- primary, .secondary, :disabled
+          4. Form primitives (.field, .input, .hint, .saved-msg,
+             .error-msg, .checkbox-label, .section-divider,
+             .validation-message, .error-list)
+          5. Destination editor (.destination-card and the
+             aliases / picker subtree). Used by the shared
+             DestinationCard component, rendered from both
+             Config.razor and Setup.razor.
+
+        Page-specific rules (Config's .field-row, Setup's .setup-card,
+        .step-*, .welcome*, .nav-actions, .summary) stay in the
+        respective page style blocks.
+    */
+
+    /* 1. Page chrome */
     body { font-family: -apple-system, Segoe UI, sans-serif; margin: 0; background: #f5f5f7; color: #1d1d1f; }
     header { background: #1d1d1f; color: white; padding: 1rem 2rem; display: flex; align-items: center; gap: 2rem; }
     header h1 { margin: 0; font-size: 1.25rem; font-weight: 500; }
@@ -35,6 +57,8 @@
     main { max-width: 900px; margin: 2rem auto; padding: 0 2rem; }
     .card { background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 1rem; }
     .card h2 { margin-top: 0; font-size: 1.1rem; font-weight: 500; color: #555; }
+
+    /* 2. Status-page primitives */
     .stat { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #eee; }
     .stat:last-child { border-bottom: none; }
     .stat-label { color: #666; }
@@ -44,13 +68,56 @@
     .badge-paused  { background: #fff3cd; color: #856404; }
     .badge-stopped { background: #f8d7da; color: #721c24; }
     .badge-error   { background: #f8d7da; color: #721c24; }
-    button { background: #0071e3; color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; font-size: 0.95rem; cursor: pointer; }
-    button:hover { background: #0077ed; }
     .error { background: #fff3cd; color: #856404; padding: 0.75rem 1rem; border-radius: 6px; margin-top: 0.75rem; }
     .error-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem; }
     .error-body { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; word-break: break-word; }
     .dismiss { background: none; color: #856404; border: none; padding: 0 0.5rem; cursor: pointer; font-size: 1.2rem; line-height: 1; }
     .dismiss:hover { background: rgba(133, 100, 4, 0.1); border-radius: 4px; color: #856404; }
+
+    /* 3. Buttons */
+    button { background: #0071e3; color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; font-size: 0.95rem; cursor: pointer; }
+    button:hover { background: #0077ed; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    button.secondary { background: white; color: #1d1d1f; border: 1px solid #d2d2d7; }
+    button.secondary:hover { background: #f5f5f7; }
+
+    /* 4. Form primitives */
+    .field { margin-bottom: 1rem; }
+    .field label { display: block; font-size: 0.9rem; color: #555; margin-bottom: 0.25rem; }
+    .input { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d2d2d7; border-radius: 6px; font-size: 1rem; box-sizing: border-box; }
+    .input:focus { outline: none; border-color: #0071e3; }
+    .hint { color: #888; font-size: 0.85rem; font-weight: normal; }
+    .saved-msg { color: #155724; background: #d4edda; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.9rem; }
+    .error-msg { color: #721c24; background: #f8d7da; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.9rem; }
+    .checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal; }
+    .section-divider { font-size: 1rem; color: #555; font-weight: 500; margin: 1.5rem 0 0.75rem; padding-top: 1rem; border-top: 1px solid #eee; }
+    .validation-message { color: #b00020; font-size: 0.85rem; margin-top: 0.25rem; }
+    .error-list { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+    .link-danger { background: none; color: #b00020; border: none; padding: 0.25rem 0.5rem; cursor: pointer; font-size: 0.9rem; }
+    .link-danger:hover { background: #fdf0f3; border-radius: 4px; }
+    .link-secondary { background: none; color: #0071e3; border: none; padding: 0.25rem 0.5rem; cursor: pointer; font-size: 0.9rem; }
+    .link-secondary:hover { background: #f0f7ff; border-radius: 4px; }
+
+    /* 5. Destination editor (rendered by the DestinationCard component) */
+    .destination-card { border: 1px solid #e5e5e7; border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; background: #fafafa; }
+    .destination-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+    .destination-header h3 { margin: 0; font-size: 1rem; font-weight: 500; }
+    .api-key-actions { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-top: 0.25rem; flex-wrap: wrap; }
+    .aliases-section { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed #ddd; }
+    .aliases-header { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+    .aliases-header h4 { margin: 0; font-size: 0.9rem; font-weight: 500; color: #555; }
+    .alias-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.5rem; margin-bottom: 0.4rem; align-items: center; }
+    .alias-row .input { padding: 0.35rem 0.6rem; font-size: 0.9rem; }
+    .alias-row .link-danger { font-size: 1.2rem; line-height: 1; padding: 0.1rem 0.5rem; }
+    .aliases-actions { display: flex; gap: 0.75rem; margin-top: 0.5rem; flex-wrap: wrap; }
+    .alias-picker { margin-top: 0.75rem; padding: 0.75rem; background: white; border: 1px solid #d2d2d7; border-radius: 6px; }
+    .picker-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .picker-header strong { font-size: 0.9rem; color: #555; }
+    .picker-list { list-style: none; padding: 0; margin: 0; max-height: 300px; overflow-y: auto; }
+    .picker-list li { padding: 0.35rem 0; border-bottom: 1px solid #f0f0f0; }
+    .picker-list li:last-child { border-bottom: none; }
+    .alias-name { font-weight: 500; }
+    .alias-guid-hint { color: #888; font-family: ui-monospace, Consolas, monospace; font-size: 0.8rem; margin-left: 0.5rem; }
 </style>
 
 @code {
