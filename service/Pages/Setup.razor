@@ -126,133 +126,21 @@
             {
                 int idx = i;
                 var dest = _destinations[idx];
-                <div class="destination-card">
-                    <div class="destination-header">
-                        <h3>@(string.IsNullOrWhiteSpace(dest.ConnectionName) ? "(unnamed)" : dest.ConnectionName)</h3>
-                        <button type="button" class="link-danger" @onclick="() => OnRemoveDestination(idx)">
-                            Remove
-                        </button>
-                    </div>
-
-                    <div class="field">
-                        <label>Name</label>
-                        <InputText @bind-Value="dest.ConnectionName" class="input" />
-                    </div>
-
-                    <div class="field">
-                        <label>URL</label>
-                        <InputText @bind-Value="dest.Destination" class="input" placeholder="https://..." />
-                    </div>
-
-                    <div class="field">
-                        <label>API key</label>
-                        <InputText @bind-Value="dest.NewApiKey" class="input" type="password" />
-                        <div class="api-key-actions">
-                            <small class="hint">Paste the API key Gundi gave you for this destination.</small>
-                            <button type="button" class="link-secondary"
-                                    @onclick="() => OnTestApiKey(idx)"
-                                    disabled="@dest.Testing">
-                                @(dest.Testing ? "Testing…" : "Test API key")
-                            </button>
-                        </div>
-                        @if (dest.LastTestResult is { } tr)
-                        {
-                            <span class="@(tr.Success ? "saved-msg" : "error-msg")" style="margin-top: 0.5rem; display: inline-block;">
-                                @(tr.Success ? "✓" : "✗") @tr.Message
-                            </span>
-                        }
-                    </div>
-
-                    <div class="field">
-                        <label class="checkbox-label">
-                            <InputCheckbox @bind-Value="dest.SendEverything" />
-                            Send all observations to this destination
-                        </label>
-                        <small class="hint">
-                            Leave on for typical setups. Turn off to forward only specific
-                            radio groups using the alias list below.
-                        </small>
-                    </div>
-
-                    <div class="aliases-section">
-                        <div class="aliases-header">
-                            <h4>Group aliases (@dest.GroupAliases.Count)</h4>
-                            @if (dest.SendEverything)
-                            {
-                                <small class="hint">Ignored — "send everything" is on.</small>
-                            }
-                        </div>
-
-                        @for (int j = 0; j < dest.GroupAliases.Count; j++)
-                        {
-                            int aliasIdx = j;
-                            var alias = dest.GroupAliases[aliasIdx];
-                            @* @key keys each row by the alias model instance so removing
-                               an alias from the middle of the list doesn't trigger Blazor
-                               DOM/component reuse for adjacent rows -- without it, input
-                               values or focus could appear to "jump" between rows. *@
-                            <div class="alias-row" @key="alias">
-                                <InputText @bind-Value="alias.Guid" placeholder="GUID" class="input" />
-                                <InputText @bind-Value="alias.Alias" placeholder="Display name" class="input" />
-                                <button type="button" class="link-danger" title="Remove this alias"
-                                        @onclick="() => OnRemoveAlias(idx, aliasIdx)">×</button>
-                            </div>
-                        }
-
-                        <div class="aliases-actions">
-                            <button type="button" class="link-secondary" @onclick="() => OnAddAlias(idx)">
-                                + Add manually
-                            </button>
-                            @if (_pickerOpenForDest != idx)
-                            {
-                                <button type="button" class="link-secondary"
-                                        @onclick="() => OnOpenPicker(idx)">
-                                    Pick from database…
-                                </button>
-                            }
-                        </div>
-
-                        @if (_pickerOpenForDest == idx)
-                        {
-                            <div class="alias-picker">
-                                <div class="picker-header">
-                                    <strong>Available groups from source database</strong>
-                                    <button type="button" class="link-secondary" @onclick="OnClosePicker">Close</button>
-                                </div>
-                                @if (_fetchingAliases)
-                                {
-                                    <p class="hint">Fetching…</p>
-                                }
-                                else if (_aliasFetchError is not null)
-                                {
-                                    <p class="error-msg">@_aliasFetchError</p>
-                                }
-                                else if (_availableAliases is { Count: > 0 } available)
-                                {
-                                    <ul class="picker-list">
-                                        @foreach (var avail in available)
-                                        {
-                                            var copy = avail; // capture for closure
-                                            var picked = IsAliasPicked(idx, copy);
-                                            <li>
-                                                <label class="checkbox-label">
-                                                    <input type="checkbox" checked="@picked"
-                                                           @onchange="() => OnTogglePickedAlias(idx, copy)" />
-                                                    <span class="alias-name">@avail.alias</span>
-                                                    <small class="alias-guid-hint">@avail.guid</small>
-                                                </label>
-                                            </li>
-                                        }
-                                    </ul>
-                                }
-                                else
-                                {
-                                    <p class="hint">No group aliases found in the source database.</p>
-                                }
-                            </div>
-                        }
-                    </div>
-                </div>
+                <DestinationCard
+                    Dest="dest"
+                    PickerOpen="_pickerOpenForDest == idx"
+                    FetchingAliases="_fetchingAliases"
+                    AliasFetchError="_aliasFetchError"
+                    AvailableAliases="_availableAliases"
+                    SendEverythingDetail="Leave on for typical setups. Turn off to forward only specific radio groups using the alias list below."
+                    OnRemove="() => OnRemoveDestination(idx)"
+                    OnTestApiKey="() => OnTestApiKey(idx)"
+                    OnAddAlias="() => OnAddAlias(idx)"
+                    OnRemoveAlias="(j) => OnRemoveAlias(idx, j)"
+                    OnOpenPicker="() => OnOpenPicker(idx)"
+                    OnClosePicker="OnClosePicker"
+                    OnTogglePickedAlias="(avail) => OnTogglePickedAlias(idx, avail)"
+                />
             }
         }
 
