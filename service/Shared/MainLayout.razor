@@ -34,11 +34,10 @@
           2. Status-page primitives (.stat, .badge, .error)
           3. Buttons -- the bare `button` rule defines the
              primary blue style; .secondary and :disabled are
-             modifiers; .dismiss overrides for the icon-style
-             error-banner close button. .dismiss is declared
-             AFTER the generic button rules so source order
-             tips any specificity tie in its favour, even on
-             properties it doesn't explicitly override.
+             modifiers; button.dismiss overrides for the
+             icon-style error-banner close button (qualified
+             with the element name to keep specificity high
+             and intent obvious).
           4. Form primitives (.field, .input, .hint, .saved-msg,
              .error-msg, .checkbox-label, .section-divider,
              .validation-message, .error-list, .link-danger,
@@ -85,13 +84,22 @@
     button:disabled { opacity: 0.6; cursor: not-allowed; }
     button.secondary { background: white; color: #1d1d1f; border: 1px solid #d2d2d7; }
     button.secondary:hover { background: #f5f5f7; }
-    /* .dismiss must come after the generic `button` rules so source
-       order reinforces class-specificity. Without this ordering,
-       properties .dismiss doesn't override (e.g. border-radius)
-       inherit from the generic button rule -- a 6px corner radius
-       on what's meant to be a flat icon. */
-    .dismiss { background: none; color: #856404; border: none; padding: 0 0.5rem; cursor: pointer; font-size: 1.2rem; line-height: 1; border-radius: 4px; }
-    .dismiss:hover { background: rgba(133, 100, 4, 0.1); color: #856404; }
+    /* `button.dismiss` rather than bare `.dismiss` for two reasons:
+       (1) higher specificity (0,1,1 element+class beats the generic
+       `button` rule's 0,0,1) makes the override unambiguous to any
+       reader, even one expecting equal-specificity / source-order
+       semantics; (2) it documents intent -- this rule applies only
+       to button elements with class="dismiss", never some other
+       element that happens to use the class.
+
+       NB: properties this rule doesn't override still come from the
+       generic `button` rule (CSS doesn't fall through specificity
+       layers based on source order). That's why `border-radius` is
+       declared explicitly here -- without it, the bare `button` rule
+       leaks its 6px corner radius into the icon-style close
+       button. */
+    button.dismiss { background: none; color: #856404; border: none; padding: 0 0.5rem; cursor: pointer; font-size: 1.2rem; line-height: 1; border-radius: 4px; }
+    button.dismiss:hover { background: rgba(133, 100, 4, 0.1); color: #856404; }
 
     /* 4. Form primitives */
     .field { margin-bottom: 1rem; }
