@@ -121,7 +121,7 @@
             <DestinationCard @key="dest"
                 Dest="dest"
                 PickerOpen="_pickerOpenForDest == dest"
-                FetchingAliases="_fetchingAliases"
+                FetchingAliases="_inFlightFetch is not null"
                 AliasFetchError="_aliasFetchError"
                 AvailableAliases="_availableAliases"
                 OnRemove="() => OnRemoveDestination(idx)"
@@ -171,7 +171,6 @@
     // the same source database — no point fetching per-destination.
     private List<GroupAlias>? _availableAliases;   // null = not yet fetched
     private string? _aliasFetchError;
-    private bool _fetchingAliases;
     // Tracked by instance reference rather than list index because the
     // operator can add/remove destinations while the picker is open;
     // an index would drift, an instance reference doesn't.
@@ -184,13 +183,13 @@
     // its result if the token has changed by the time the query returns.
     private int _fetchGeneration;
 
-    // Reference to the in-flight fetch Task, if any. A second
-    // EnsureAliasesFetched call awaits this rather than just bailing on
-    // the boolean -- otherwise a stale-then-discarded result would
-    // leave the picker permanently empty (the early-return on
-    // _fetchingAliases skips the call, and the in-flight task's gen
-    // mismatch suppresses its write, so nothing populates the cache
-    // and no follow-up fetch is triggered).
+    // Reference to the in-flight fetch Task, if any. EnsureAliasesFetched
+    // awaits this rather than racing past it -- otherwise concurrent
+    // openings would either start parallel DB connections or leave the
+    // picker permanently empty when a stale-discarded result was the
+    // only thing in flight. The picker's "Fetching..." indicator is
+    // bound directly to (_inFlightFetch is not null) so the UI can't
+    // disagree with the actual in-flight state.
     private Task? _inFlightFetch;
 
     protected override void OnInitialized()
@@ -357,25 +356,34 @@
     /// </summary>
     private async Task EnsureAliasesFetched()
     {
-        if (_availableAliases is not null) return;
-
-        // If a fetch is in flight, wait for it. Two outcomes:
-        //   * Its generation still matches when it returns -> cache
-        //     is populated. We see _availableAliases is not null on
-        //     the next check and return.
-        //   * Its generation no longer matches (cache was invalidated
-        //     mid-flight) -> the in-flight call discards its result;
-        //     _availableAliases stays null, so we fall through to
-        //     start a fresh fetch on the new generation.
-        // This is the load-bearing fix for the close+edit+reopen race:
-        // a bare `if (_fetchingAliases) return;` would leave the
-        // picker permanently empty when the in-flight result got
-        // discarded as stale, because nothing would re-trigger.
-        if (_inFlightFetch is { } pending)
+        // Drain any in-flight fetches before considering whether to
+        // start our own. The loop handles two interleavings:
+        //
+        //   * After the await, the in-flight task populated the cache
+        //     (its generation still matched when it returned) -> we
+        //     see _availableAliases is not null and return.
+        //
+        //   * After the await, _availableAliases is still null
+        //     because the in-flight discarded its result as stale
+        //     (its generation didn't match). Loop: another concurrent
+        //     EnsureAliasesFetched call may have ALREADY taken the
+        //     fall-through and started a new in-flight fetch in the
+        //     window between our pending's continuation running and
+        //     our continuation running. If so, await that one too.
+        //     Without the loop, multiple awaiting callers can each
+        //     fall through and start parallel DB connections --
+        //     reintroducing the very concurrency the in-flight slot
+        //     is meant to prevent.
+        //
+        // Exits when either the cache is populated or no in-flight
+        // task exists, in which case we're the chosen one to start
+        // the next fetch.
+        while (true)
         {
+            if (_availableAliases is not null) return;
+            if (_inFlightFetch is not { } pending) break;
             try { await pending; }
             catch { /* the in-flight call handled its own error UI */ }
-            if (_availableAliases is not null) return;
         }
 
         if (_form.ReaderTypeValue < 0)
@@ -393,13 +401,15 @@
         var existing = ConfigSvc.LoadRouteConfig();
         var probeConfig = _form.ToRouteConfig(existingPassword: existing.Password);
 
-        _fetchingAliases = true;
         _aliasFetchError = null;
 
         // Off-thread: GetGroupAliases opens a real DB connection.
         // Stash the task in _inFlightFetch so a concurrent
         // EnsureAliasesFetched can await it instead of skipping past
-        // and missing the populate.
+        // and missing the populate. Note: the picker UI's
+        // "Fetching..." state is derived directly from
+        // (_inFlightFetch is not null) -- no separate boolean to
+        // keep in sync.
         var task = Task.Run(() =>
         {
             using var reader = service.RadioDataPumpService.CreateReader(probeConfig);
@@ -421,9 +431,12 @@
         finally
         {
             // Only clear the slot if it's still ours -- a follow-up
-            // EnsureAliasesFetched may have already replaced it.
+            // EnsureAliasesFetched may have already replaced it
+            // (which is what the loop at the top of this method
+            // intentionally enables). Without the ReferenceEquals
+            // check, "still fetching" would visually flicker off
+            // mid-cycle even though a newer fetch is underway.
             if (ReferenceEquals(_inFlightFetch, task)) _inFlightFetch = null;
-            _fetchingAliases = false;
         }
     }
 
