@@ -177,6 +177,16 @@
     // an index would drift, an instance reference doesn't.
     private DestinationFormModel? _pickerOpenForDest;
 
+    // Cache-generation token. Bumped whenever the cache is invalidated
+    // (currently in OnOpenPicker when transitioning from "no picker
+    // open" to "open"). EnsureAliasesFetched captures the current value
+    // before kicking off its DB query and refuses to write its result if
+    // the value has changed by the time the query returns -- so an
+    // in-flight fetch that the operator invalidated by closing,
+    // editing the DB form, and re-opening the picker doesn't repopulate
+    // the cache with stale data.
+    private int _fetchGeneration;
+
     protected override void OnInitialized()
     {
         var current = ConfigSvc.LoadRouteConfig();
@@ -279,6 +289,14 @@
         {
             _availableAliases = null;
             _aliasFetchError = null;
+
+            // Bump the fetch generation so any in-flight EnsureAliasesFetched
+            // that hasn't returned yet will discard its result rather than
+            // repopulate the cache we just cleared. _fetchingAliases is
+            // intentionally left alone -- the in-flight fetch's finally
+            // block resets it, and our re-entrancy guard then lets a fresh
+            // fetch start once the stale one returns.
+            _fetchGeneration++;
         }
         _pickerOpenForDest = dest;
         await EnsureAliasesFetched();
@@ -339,6 +357,13 @@
             return;
         }
 
+        // Snapshot the cache generation. If OnOpenPicker (or any future
+        // invalidator) bumps it while we're awaiting the fetch -- e.g.
+        // the operator closes the picker, edits the DB form, and
+        // reopens before the original DB query returns -- our result
+        // is stale and we drop it on the floor instead of overwriting
+        // whatever fresh state replaced it.
+        var generation = _fetchGeneration;
         _fetchingAliases = true;
         _aliasFetchError = null;
         try
@@ -347,14 +372,18 @@
             var probeConfig = _form.ToRouteConfig(existingPassword: existing.Password);
 
             // Off-thread: GetGroupAliases opens a real DB connection.
-            _availableAliases = await Task.Run(() =>
+            var result = await Task.Run(() =>
             {
                 using var reader = service.RadioDataPumpService.CreateReader(probeConfig);
                 return reader.GetGroupAliases();
             });
+
+            if (generation != _fetchGeneration) return;
+            _availableAliases = result;
         }
         catch (Exception ex)
         {
+            if (generation != _fetchGeneration) return;
             _aliasFetchError = $"{ex.GetType().Name}: {ex.Message}";
             _availableAliases = null;
         }
