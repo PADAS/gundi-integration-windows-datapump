@@ -324,6 +324,15 @@
     private async Task EnsureAliasesFetched()
     {
         if (_availableAliases is not null) return;
+
+        // Re-entrancy guard. Without this, an operator who quickly
+        // opens the picker on dest A and then dest B before the first
+        // fetch completes could trigger two concurrent DB connections.
+        // The in-flight fetch will populate _availableAliases when it
+        // completes; both pickers (whichever is currently open) then
+        // render the result.
+        if (_fetchingAliases) return;
+
         if (_form.ReaderTypeValue < 0)
         {
             _aliasFetchError = "Pick a reader type first.";
