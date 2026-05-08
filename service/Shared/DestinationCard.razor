@@ -97,7 +97,12 @@
             <div class="alias-row" @key="alias">
                 <InputText @bind-Value="alias.Guid" placeholder="GUID" class="input" />
                 <InputText @bind-Value="alias.Alias" placeholder="Display name" class="input" />
-                <button type="button" class="link-danger" title="Remove this alias"
+                @* Icon-only button -- aria-label gives screen readers
+                   an accessible name. `title` is kept too because mouse
+                   users see it as a hover tooltip, which `aria-label`
+                   alone doesn't surface in most browsers. *@
+                <button type="button" class="link-danger"
+                        aria-label="Remove this alias" title="Remove this alias"
                         @onclick="() => OnRemoveAlias.InvokeAsync(aliasIdx)">×</button>
             </div>
         }
