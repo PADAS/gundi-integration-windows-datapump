@@ -378,12 +378,22 @@
         // Exits when either the cache is populated or no in-flight
         // task exists, in which case we're the chosen one to start
         // the next fetch.
+        //
+        // The Task.Yield() at the bottom is load-bearing: if pending
+        // is already completed when we hit `await pending`, the await
+        // runs synchronously without yielding to the Blazor sync
+        // context. The owning fetch's continuation (which clears
+        // _inFlightFetch and may have populated _availableAliases) is
+        // queued on the same context and never gets to run while
+        // we're spinning. Task.Yield forces a real async yield so
+        // queued continuations process before our next iteration.
         while (true)
         {
             if (_availableAliases is not null) return;
             if (_inFlightFetch is not { } pending) break;
             try { await pending; }
             catch { /* the in-flight call handled its own error UI */ }
+            await Task.Yield();
         }
 
         if (_form.ReaderTypeValue < 0)
