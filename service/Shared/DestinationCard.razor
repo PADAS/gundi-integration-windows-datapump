@@ -79,11 +79,18 @@
             }
         </div>
 
+        @*
+            @key keys each row by the alias model instance so removing
+            an alias from the middle of the list doesn't trigger Blazor
+            DOM/component reuse for adjacent rows. Without this, the
+            input values and focus could appear to "jump" between
+            rows after a remove.
+        *@
         @for (int j = 0; j < Dest.GroupAliases.Count; j++)
         {
             int aliasIdx = j;
             var alias = Dest.GroupAliases[aliasIdx];
-            <div class="alias-row">
+            <div class="alias-row" @key="alias">
                 <InputText @bind-Value="alias.Guid" placeholder="GUID" class="input" />
                 <InputText @bind-Value="alias.Alias" placeholder="Display name" class="input" />
                 <button type="button" class="link-danger" title="Remove this alias"

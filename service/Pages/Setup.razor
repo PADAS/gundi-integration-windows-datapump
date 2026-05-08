@@ -122,13 +122,24 @@
         }
         else
         {
+            @*
+                @key keys each card by the destination model instance so
+                that picker open-state and focus survive add/remove of
+                other cards. Without it, an index-based render identity
+                would "shift" UI state to the wrong card when the
+                operator removes an earlier destination.
+
+                _pickerOpenForDest is also tracked by instance reference
+                (DestinationFormModel?, not int?) for the same reason --
+                index would drift, instance reference is stable.
+            *@
             @for (int i = 0; i < _destinations.Count; i++)
             {
                 int idx = i;
                 var dest = _destinations[idx];
-                <DestinationCard
+                <DestinationCard @key="dest"
                     Dest="dest"
-                    PickerOpen="_pickerOpenForDest == idx"
+                    PickerOpen="_pickerOpenForDest == dest"
                     FetchingAliases="_fetchingAliases"
                     AliasFetchError="_aliasFetchError"
                     AvailableAliases="_availableAliases"
@@ -137,7 +148,7 @@
                     OnTestApiKey="() => OnTestApiKey(idx)"
                     OnAddAlias="() => OnAddAlias(idx)"
                     OnRemoveAlias="(j) => OnRemoveAlias(idx, j)"
-                    OnOpenPicker="() => OnOpenPicker(idx)"
+                    OnOpenPicker="() => OnOpenPicker(dest)"
                     OnClosePicker="OnClosePicker"
                     OnTogglePickedAlias="(avail) => OnTogglePickedAlias(idx, avail)"
                 />
@@ -260,7 +271,10 @@
     private List<GroupAlias>? _availableAliases;   // null = not yet fetched
     private string? _aliasFetchError;
     private bool _fetchingAliases;
-    private int? _pickerOpenForDest;               // index of the destination whose picker is open
+    // Tracked by instance reference rather than list index because the
+    // operator can add/remove destinations while the picker is open;
+    // an index would drift, an instance reference doesn't.
+    private DestinationFormModel? _pickerOpenForDest;
 
     // Cache-generation token. Bumped by ClearTransientStepState whenever
     // the operator leaves step 3 (or returns to it). EnsureAliasesFetched
@@ -500,19 +514,21 @@
         _destinationErrors.Clear();
     }
 
-    private async Task OnOpenPicker(int destIdx)
+    private async Task OnOpenPicker(DestinationFormModel dest)
     {
-        // Same bounds check as the other destination handlers in this
-        // file. The buttons that fire this only render with a valid
-        // index, but a tampered request body could send anything.
-        if (destIdx < 0 || destIdx >= _destinations.Count) return;
-
         // Cache invalidation is owned by ClearTransientStepState (which
         // bumps _fetchGeneration on every step transition). The wizard
         // can't edit DB fields on step 3, so close-and-reopen of the
         // picker should reuse the cached result rather than refetching.
         // No clearing here.
-        _pickerOpenForDest = destIdx;
+        //
+        // No bounds-check on `dest` either: it's an instance reference
+        // pulled from the rendered list, not a tampered index. If the
+        // caller somehow passed a stale instance, _pickerOpenForDest
+        // would just hold a reference that compares unequal to every
+        // current list item -- effectively no-op rather than a UI
+        // glitch.
+        _pickerOpenForDest = dest;
         await EnsureAliasesFetched();
     }
 

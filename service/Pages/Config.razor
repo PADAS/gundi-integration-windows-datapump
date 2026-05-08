@@ -105,15 +105,22 @@
     }
     else
     {
+        @*
+            @key keys each card by the destination model instance so
+            picker open-state and focus survive add/remove of other
+            cards. _pickerOpenForDest is also tracked by instance
+            reference for the same reason -- list-index identity drifts
+            when items above are removed, instance reference doesn't.
+        *@
         @for (int i = 0; i < _destinations.Count; i++)
         {
             // Capture for the lambda closure on Remove — for-loop variable
             // is shared across iterations otherwise.
             int idx = i;
             var dest = _destinations[idx];
-            <DestinationCard
+            <DestinationCard @key="dest"
                 Dest="dest"
-                PickerOpen="_pickerOpenForDest == idx"
+                PickerOpen="_pickerOpenForDest == dest"
                 FetchingAliases="_fetchingAliases"
                 AliasFetchError="_aliasFetchError"
                 AvailableAliases="_availableAliases"
@@ -121,7 +128,7 @@
                 OnTestApiKey="() => OnTestApiKey(idx)"
                 OnAddAlias="() => OnAddAlias(idx)"
                 OnRemoveAlias="(j) => OnRemoveAlias(idx, j)"
-                OnOpenPicker="() => OnOpenPicker(idx)"
+                OnOpenPicker="() => OnOpenPicker(dest)"
                 OnClosePicker="OnClosePicker"
                 OnTogglePickedAlias="(avail) => OnTogglePickedAlias(idx, avail)"
             />
@@ -199,7 +206,10 @@
     private List<GroupAlias>? _availableAliases;   // null = not yet fetched
     private string? _aliasFetchError;
     private bool _fetchingAliases;
-    private int? _pickerOpenForDest;               // index of the destination whose picker is open
+    // Tracked by instance reference rather than list index because the
+    // operator can add/remove destinations while the picker is open;
+    // an index would drift, an instance reference doesn't.
+    private DestinationFormModel? _pickerOpenForDest;
 
     protected override void OnInitialized()
     {
@@ -286,7 +296,7 @@
         }
     }
 
-    private async Task OnOpenPicker(int destIdx)
+    private async Task OnOpenPicker(DestinationFormModel dest)
     {
         // Transitioning from "no picker open" to "open" means the user
         // may have edited DB form fields since the last fetch — drop the
@@ -298,7 +308,7 @@
             _availableAliases = null;
             _aliasFetchError = null;
         }
-        _pickerOpenForDest = destIdx;
+        _pickerOpenForDest = dest;
         await EnsureAliasesFetched();
     }
 
