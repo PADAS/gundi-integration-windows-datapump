@@ -169,9 +169,88 @@
                             Send all observations to this destination
                         </label>
                         <small class="hint">
-                            Leave on for typical setups. Group filters can be configured later
-                            from the Configuration page.
+                            Leave on for typical setups. Turn off to forward only specific
+                            radio groups using the alias list below.
                         </small>
+                    </div>
+
+                    <div class="aliases-section">
+                        <div class="aliases-header">
+                            <h4>Group aliases (@dest.GroupAliases.Count)</h4>
+                            @if (dest.SendEverything)
+                            {
+                                <small class="hint">Ignored — "send everything" is on.</small>
+                            }
+                        </div>
+
+                        @for (int j = 0; j < dest.GroupAliases.Count; j++)
+                        {
+                            int aliasIdx = j;
+                            var alias = dest.GroupAliases[aliasIdx];
+                            @* @key keys each row by the alias model instance so removing
+                               an alias from the middle of the list doesn't trigger Blazor
+                               DOM/component reuse for adjacent rows -- without it, input
+                               values or focus could appear to "jump" between rows. *@
+                            <div class="alias-row" @key="alias">
+                                <InputText @bind-Value="alias.Guid" placeholder="GUID" class="input" />
+                                <InputText @bind-Value="alias.Alias" placeholder="Display name" class="input" />
+                                <button type="button" class="link-danger" title="Remove this alias"
+                                        @onclick="() => OnRemoveAlias(idx, aliasIdx)">×</button>
+                            </div>
+                        }
+
+                        <div class="aliases-actions">
+                            <button type="button" class="link-secondary" @onclick="() => OnAddAlias(idx)">
+                                + Add manually
+                            </button>
+                            @if (_pickerOpenForDest != idx)
+                            {
+                                <button type="button" class="link-secondary"
+                                        @onclick="() => OnOpenPicker(idx)">
+                                    Pick from database…
+                                </button>
+                            }
+                        </div>
+
+                        @if (_pickerOpenForDest == idx)
+                        {
+                            <div class="alias-picker">
+                                <div class="picker-header">
+                                    <strong>Available groups from source database</strong>
+                                    <button type="button" class="link-secondary" @onclick="OnClosePicker">Close</button>
+                                </div>
+                                @if (_fetchingAliases)
+                                {
+                                    <p class="hint">Fetching…</p>
+                                }
+                                else if (_aliasFetchError is not null)
+                                {
+                                    <p class="error-msg">@_aliasFetchError</p>
+                                }
+                                else if (_availableAliases is { Count: > 0 } available)
+                                {
+                                    <ul class="picker-list">
+                                        @foreach (var avail in available)
+                                        {
+                                            var copy = avail; // capture for closure
+                                            var picked = IsAliasPicked(idx, copy);
+                                            <li>
+                                                <label class="checkbox-label">
+                                                    <input type="checkbox" checked="@picked"
+                                                           @onchange="() => OnTogglePickedAlias(idx, copy)" />
+                                                    <span class="alias-name">@avail.alias</span>
+                                                    <small class="alias-guid-hint">@avail.guid</small>
+                                                </label>
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+                                else
+                                {
+                                    <p class="hint">No group aliases found in the source database.</p>
+                                }
+                            </div>
+                        }
                     </div>
                 </div>
             }
@@ -257,6 +336,21 @@
     .error-list { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
     .summary { line-height: 1.7; }
     .validation-message { color: #b00020; font-size: 0.85rem; margin-top: 0.25rem; }
+    .aliases-section { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed #ddd; }
+    .aliases-header { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+    .aliases-header h4 { margin: 0; font-size: 0.9rem; font-weight: 500; color: #555; }
+    .alias-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.5rem; margin-bottom: 0.4rem; align-items: center; }
+    .alias-row .input { padding: 0.35rem 0.6rem; font-size: 0.9rem; }
+    .alias-row .link-danger { font-size: 1.2rem; line-height: 1; padding: 0.1rem 0.5rem; }
+    .aliases-actions { display: flex; gap: 0.75rem; margin-top: 0.5rem; flex-wrap: wrap; }
+    .alias-picker { margin-top: 0.75rem; padding: 0.75rem; background: white; border: 1px solid #d2d2d7; border-radius: 6px; }
+    .picker-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .picker-header strong { font-size: 0.9rem; color: #555; }
+    .picker-list { list-style: none; padding: 0; margin: 0; max-height: 300px; overflow-y: auto; }
+    .picker-list li { padding: 0.35rem 0; border-bottom: 1px solid #f0f0f0; }
+    .picker-list li:last-child { border-bottom: none; }
+    .alias-name { font-weight: 500; }
+    .alias-guid-hint { color: #888; font-family: ui-monospace, Consolas, monospace; font-size: 0.8rem; margin-left: 0.5rem; }
 </style>
 
 @code {
@@ -268,6 +362,25 @@
     private TestResult? _testResult;
     private bool _saving;
     private string? _saveError;
+
+    // Group-alias picker state, scoped to the page rather than per-
+    // destination because all destinations share a single source DB --
+    // no point fetching once per destination card. Same shape used in
+    // Config.razor; this duplication is deliberate-but-unfortunate, and
+    // a candidate for extraction into a shared component when the
+    // wizard and the manual page next get refactored together.
+    private List<GroupAlias>? _availableAliases;   // null = not yet fetched
+    private string? _aliasFetchError;
+    private bool _fetchingAliases;
+    private int? _pickerOpenForDest;               // index of the destination whose picker is open
+
+    // Cache-generation token. Bumped by ClearTransientStepState whenever
+    // the operator leaves step 3 (or returns to it). EnsureAliasesFetched
+    // captures the current value before kicking off its DB query and
+    // refuses to write its result if the value has changed by the time
+    // the query returns -- so an in-flight fetch that the operator
+    // navigated away from doesn't repopulate the cache with stale data.
+    private int _fetchGeneration;
 
     protected override void OnInitialized()
     {
@@ -309,18 +422,37 @@
             return;
         }
         _step--;
-        // Clear transient state that doesn't make sense on revisit.
-        _testResult = null;
-        _saveError = null;
-        _destinationErrors.Clear();
+        ClearTransientStepState();
     }
 
     private void OnNext()
     {
         _step++;
+        ClearTransientStepState();
+    }
+
+    /// <summary>
+    /// Reset the per-step ephemeral fields that shouldn't carry over a
+    /// step transition. Includes the alias picker's open state and
+    /// cached results -- without that reset, an operator who opens the
+    /// picker on step 3, navigates back to step 2 to tweak DB
+    /// settings, then comes forward again, would see the picker still
+    /// open with stale results that don't reflect the new DB form.
+    /// </summary>
+    private void ClearTransientStepState()
+    {
         _testResult = null;
         _saveError = null;
         _destinationErrors.Clear();
+        _pickerOpenForDest = null;
+        _availableAliases = null;
+        _aliasFetchError = null;
+
+        // Bump the fetch generation so any in-flight EnsureAliasesFetched
+        // that hasn't returned yet will discard its result rather than
+        // repopulate the cache we just cleared. _fetchingAliases is left
+        // alone -- the in-flight fetch's finally block will reset it.
+        _fetchGeneration++;
     }
 
     // Step 1: Welcome -> Database
@@ -464,6 +596,138 @@
         }
     }
 
+    private void OnAddAlias(int destIdx)
+    {
+        if (destIdx < 0 || destIdx >= _destinations.Count) return;
+        _destinations[destIdx].GroupAliases.Add(new GroupAliasFormModel());
+        _destinationErrors.Clear();
+    }
+
+    private void OnRemoveAlias(int destIdx, int aliasIdx)
+    {
+        if (destIdx < 0 || destIdx >= _destinations.Count) return;
+        var aliases = _destinations[destIdx].GroupAliases;
+        if (aliasIdx < 0 || aliasIdx >= aliases.Count) return;
+        aliases.RemoveAt(aliasIdx);
+        _destinationErrors.Clear();
+    }
+
+    private async Task OnOpenPicker(int destIdx)
+    {
+        // Same bounds check as the other destination handlers in this
+        // file. The buttons that fire this only render with a valid
+        // index, but a tampered request body could send anything.
+        if (destIdx < 0 || destIdx >= _destinations.Count) return;
+
+        // Cache invalidation is owned by ClearTransientStepState (which
+        // bumps _fetchGeneration on every step transition). The wizard
+        // can't edit DB fields on step 3, so close-and-reopen of the
+        // picker should reuse the cached result rather than refetching.
+        // No clearing here.
+        _pickerOpenForDest = destIdx;
+        await EnsureAliasesFetched();
+    }
+
+    private void OnClosePicker()
+    {
+        _pickerOpenForDest = null;
+    }
+
+    private void OnTogglePickedAlias(int destIdx, GroupAlias avail)
+    {
+        if (destIdx < 0 || destIdx >= _destinations.Count) return;
+        var dest = _destinations[destIdx];
+        var existing = dest.GroupAliases.FirstOrDefault(a => a.Guid == avail.guid);
+        if (existing is not null)
+        {
+            dest.GroupAliases.Remove(existing);
+        }
+        else
+        {
+            dest.GroupAliases.Add(new GroupAliasFormModel
+            {
+                Guid = avail.guid,
+                Alias = avail.alias,
+            });
+        }
+        _destinationErrors.Clear();
+    }
+
+    private bool IsAliasPicked(int destIdx, GroupAlias avail)
+    {
+        if (destIdx < 0 || destIdx >= _destinations.Count) return false;
+        return _destinations[destIdx].GroupAliases.Any(a => a.Guid == avail.guid);
+    }
+
+    /// <summary>
+    /// Fetches available group aliases from the configured source DB
+    /// and caches them at page scope. Uses the in-form DB values (same
+    /// merge pattern as Test Connection) so the operator can pick
+    /// before saving. Idempotent — does nothing if aliases were
+    /// already fetched.
+    /// </summary>
+    private async Task EnsureAliasesFetched()
+    {
+        if (_availableAliases is not null) return;
+
+        // Re-entrancy guard. Without this, an operator who quickly
+        // opens the picker on dest A and then dest B before the first
+        // fetch completes could trigger two concurrent DB connections.
+        // The in-flight fetch will populate _availableAliases when it
+        // completes; both pickers (whichever is currently open) then
+        // render the result.
+        if (_fetchingAliases) return;
+
+        if (_dbForm.ReaderTypeValue < 0)
+        {
+            _aliasFetchError = "Pick a reader type first (step 2).";
+            return;
+        }
+
+        // Snapshot the cache generation. If ClearTransientStepState runs
+        // while we're awaiting the fetch (e.g. the operator clicked Back
+        // to step 2 before the DB query returned), its bumped generation
+        // makes our result stale and we drop it on the floor instead of
+        // overwriting whatever fresh state replaced it.
+        var generation = _fetchGeneration;
+        _fetchingAliases = true;
+        _aliasFetchError = null;
+        try
+        {
+            var existing = ConfigSvc.LoadRouteConfig();
+            var probeConfig = _dbForm.ToRouteConfig(existingPassword: existing.Password);
+
+            // Off-thread: GetGroupAliases opens a real DB connection.
+            var result = await Task.Run(() =>
+            {
+                using var reader = service.RadioDataPumpService.CreateReader(probeConfig);
+                return reader.GetGroupAliases();
+            });
+
+            if (generation != _fetchGeneration) return;
+            _availableAliases = result;
+        }
+        catch (Exception ex)
+        {
+            // Log the full exception (with stack + DB connection details
+            // in ex.Message) so support can diagnose from the diagnostic
+            // bundle. The UI gets a sanitized message -- DB exceptions
+            // from Npgsql / SqlClient routinely embed hostnames,
+            // database names, and usernames in the message text and
+            // those don't belong in a screenshot.
+            NLog.LogManager.GetCurrentClassLogger()
+                .Warn(ex, "Failed to fetch group aliases from source DB.");
+            if (generation != _fetchGeneration) return;
+            _aliasFetchError = "Could not fetch group aliases. " +
+                "Check the database settings on step 2 and the service log for details.";
+            _availableAliases = null;
+        }
+        finally
+        {
+            _fetchingAliases = false;
+        }
+    }
+
     // Same shape as Config.razor's ValidateDestinations -- we want the
     // "leave blank" rules, alias rules, and dupe-guid rules to behave
     // identically in the wizard and the manual page. Zero destinations
@@ -483,6 +747,33 @@
                 errs.Add($"{label}: URL is required.");
             if (!d.ApiKeySet && string.IsNullOrWhiteSpace(d.NewApiKey))
                 errs.Add($"{label}: API key is required.");
+
+            // Per-alias validation. Skip the whole block when the
+            // destination is in "send everything" mode -- aliases are
+            // ignored at runtime, so blank rows are harmless and we
+            // shouldn't make the user clean them up before saving.
+            if (!d.SendEverything)
+            {
+                for (int j = 0; j < d.GroupAliases.Count; j++)
+                {
+                    var a = d.GroupAliases[j];
+                    if (string.IsNullOrWhiteSpace(a.Guid))
+                        errs.Add($"{label} alias #{j + 1}: GUID is required.");
+                    if (string.IsNullOrWhiteSpace(a.Alias))
+                        errs.Add($"{label} alias #{j + 1}: name is required.");
+                }
+
+                // GroupAlias.Equals() is by guid -- a duplicate guid in
+                // this list would silently overwrite the prior at
+                // runtime. Catch it here with a clear error instead.
+                var dupes = d.GroupAliases
+                    .Where(a => !string.IsNullOrWhiteSpace(a.Guid))
+                    .GroupBy(a => a.Guid)
+                    .Where(g => g.Count() > 1)
+                    .Select(g => g.Key);
+                foreach (var dupe in dupes)
+                    errs.Add($"{label}: GUID '{dupe}' appears on more than one alias.");
+            }
         }
         return errs;
     }
