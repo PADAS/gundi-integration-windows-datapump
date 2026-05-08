@@ -1,0 +1,199 @@
+@*
+    A single Gundi destination's editor card. Shared between the
+    manual Configuration page and the first-run Setup wizard so
+    they render the destination-form section identically and stay
+    in sync as the editor evolves.
+
+    The component owns the markup and the wiring of inputs to
+    DestinationFormModel. Text inputs and the "send everything"
+    checkbox bind directly to Dest via @bind-Value -- Blazor's
+    two-way binding mutates the model in place without a
+    callback. Button actions (Remove, Test API key, Add manually,
+    Pick from database, Close, etc.) surface as EventCallbacks so
+    the parent can clear validation errors, invalidate caches, or
+    trigger state mutation it owns (the destinations list, the
+    picker's open-card pointer, the page-scoped alias-fetch
+    cache).
+
+    The picker UI is part of this component but its data is page-
+    scoped (all destinations on a page share one fetch result),
+    so PickerOpen / FetchingAliases / AliasFetchError /
+    AvailableAliases come in as parameters from the parent's
+    page-level fields.
+*@
+
+<div class="destination-card">
+    <div class="destination-header">
+        <h3>@(string.IsNullOrWhiteSpace(Dest.ConnectionName) ? "(unnamed)" : Dest.ConnectionName)</h3>
+        <button type="button" class="link-danger" @onclick="OnRemove">
+            Remove
+        </button>
+    </div>
+
+    <div class="field">
+        <label>Name</label>
+        <InputText @bind-Value="Dest.ConnectionName" class="input" />
+    </div>
+
+    <div class="field">
+        <label>URL</label>
+        <InputText @bind-Value="Dest.Destination" class="input" placeholder="https://..." />
+    </div>
+
+    <div class="field">
+        <label>API key</label>
+        <InputText @bind-Value="Dest.NewApiKey" class="input" type="password"
+                   placeholder="@(Dest.ApiKeySet ? "(unchanged)" : "")" />
+        <div class="api-key-actions">
+            <small class="hint">
+                @(Dest.ApiKeySet ? "Leave blank to keep the existing API key." : "Required for new destinations.")
+            </small>
+            <button type="button" class="link-secondary"
+                    @onclick="OnTestApiKey"
+                    disabled="@Dest.Testing">
+                @(Dest.Testing ? "Testing…" : "Test API key")
+            </button>
+        </div>
+        @if (Dest.LastTestResult is { } tr)
+        {
+            <span class="@(tr.Success ? "saved-msg" : "error-msg")"
+                  style="margin-top: 0.5rem; display: inline-block;">
+                @(tr.Success ? "✓" : "✗") @tr.Message
+            </span>
+        }
+    </div>
+
+    <div class="field">
+        <label class="checkbox-label">
+            <InputCheckbox @bind-Value="Dest.SendEverything" />
+            Send all observations to this destination
+        </label>
+        @if (!string.IsNullOrEmpty(SendEverythingDetail))
+        {
+            <small class="hint">@SendEverythingDetail</small>
+        }
+    </div>
+
+    <div class="aliases-section">
+        <div class="aliases-header">
+            <h4>Group aliases (@Dest.GroupAliases.Count)</h4>
+            @if (Dest.SendEverything)
+            {
+                <small class="hint">Ignored — "send everything" is on.</small>
+            }
+        </div>
+
+        @*
+            @key keys each row by the alias model instance so removing
+            an alias from the middle of the list doesn't trigger Blazor
+            DOM/component reuse for adjacent rows. Without this, the
+            input values and focus could appear to "jump" between
+            rows after a remove.
+        *@
+        @for (int j = 0; j < Dest.GroupAliases.Count; j++)
+        {
+            int aliasIdx = j;
+            var alias = Dest.GroupAliases[aliasIdx];
+            <div class="alias-row" @key="alias">
+                <InputText @bind-Value="alias.Guid" placeholder="GUID" class="input" />
+                <InputText @bind-Value="alias.Alias" placeholder="Display name" class="input" />
+                <button type="button" class="link-danger" title="Remove this alias"
+                        @onclick="() => OnRemoveAlias.InvokeAsync(aliasIdx)">×</button>
+            </div>
+        }
+
+        <div class="aliases-actions">
+            <button type="button" class="link-secondary" @onclick="OnAddAlias">
+                + Add manually
+            </button>
+            @if (!PickerOpen)
+            {
+                <button type="button" class="link-secondary" @onclick="OnOpenPicker">
+                    Pick from database…
+                </button>
+            }
+        </div>
+
+        @if (PickerOpen)
+        {
+            <div class="alias-picker">
+                <div class="picker-header">
+                    <strong>Available groups from source database</strong>
+                    <button type="button" class="link-secondary" @onclick="OnClosePicker">Close</button>
+                </div>
+                @if (FetchingAliases)
+                {
+                    <p class="hint">Fetching…</p>
+                }
+                else if (AliasFetchError is not null)
+                {
+                    <p class="error-msg">@AliasFetchError</p>
+                }
+                else if (AvailableAliases is { Count: > 0 } available)
+                {
+                    <ul class="picker-list">
+                        @foreach (var avail in available)
+                        {
+                            var copy = avail; // capture for closure
+                            var picked = IsAliasPicked(copy);
+                            <li>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" checked="@picked"
+                                           @onchange="() => OnTogglePickedAlias.InvokeAsync(copy)" />
+                                    <span class="alias-name">@avail.alias</span>
+                                    <small class="alias-guid-hint">@avail.guid</small>
+                                </label>
+                            </li>
+                        }
+                    </ul>
+                }
+                else
+                {
+                    <p class="hint">No group aliases found in the source database.</p>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public DestinationFormModel Dest { get; set; } = null!;
+
+    /// <summary>True when this card's "Pick from database…" overlay is open.</summary>
+    [Parameter] public bool PickerOpen { get; set; }
+
+    /// <summary>The picker's data. Shared across all cards on the page.</summary>
+    [Parameter] public bool FetchingAliases { get; set; }
+    [Parameter] public string? AliasFetchError { get; set; }
+    [Parameter] public List<GroupAlias>? AvailableAliases { get; set; }
+
+    /// <summary>
+    /// Optional explanatory hint shown beneath the "Send all observations"
+    /// checkbox. Empty by default (Config.razor's pattern); the wizard
+    /// passes a longer hint guiding operators on when to turn it off.
+    /// </summary>
+    [Parameter] public string SendEverythingDetail { get; set; } = "";
+
+    [Parameter] public EventCallback OnRemove { get; set; }
+    [Parameter] public EventCallback OnTestApiKey { get; set; }
+
+    /// <summary>Invoked when the operator clicks "+ Add manually".</summary>
+    [Parameter] public EventCallback OnAddAlias { get; set; }
+
+    /// <summary>Invoked with the alias index when the operator clicks "×" on a row.</summary>
+    [Parameter] public EventCallback<int> OnRemoveAlias { get; set; }
+
+    [Parameter] public EventCallback OnOpenPicker { get; set; }
+    [Parameter] public EventCallback OnClosePicker { get; set; }
+
+    /// <summary>Invoked with the available alias the operator just toggled in the picker.</summary>
+    [Parameter] public EventCallback<GroupAlias> OnTogglePickedAlias { get; set; }
+
+    /// <summary>
+    /// True if the supplied available alias is currently in this
+    /// destination's GroupAliases list. Computed locally from
+    /// <see cref="Dest"/> -- no callback needed.
+    /// </summary>
+    private bool IsAliasPicked(GroupAlias avail)
+        => Dest.GroupAliases.Any(a => a.Guid == avail.guid);
+}
