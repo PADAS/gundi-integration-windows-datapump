@@ -36,7 +36,15 @@
                     @onclick="OnCheckForUpdate" disabled="@(_checking || _applying)">
                 @(_checking ? "Checking…" : "Check for updates")
             </button>
-            @if (_check is { HasUpdate: true } u)
+            @* The `!_applySuccess` gate hides the apply button after a
+               successful apply. The orchestrator started by ApplyAsync
+               keeps running for several seconds before the service
+               actually exits and the SignalR circuit dies; without
+               this gate, an eager operator could click again in that
+               window and spawn a second orchestrator. A failed apply
+               (e.g. transient download issue) leaves _applySuccess
+               false so the button stays clickable for retry. *@
+            @if (_check is { HasUpdate: true } u && !_applySuccess)
             {
                 <button type="button" class="header-btn header-btn-primary"
                         @onclick="OnApplyUpdate" disabled="@_applying">
@@ -240,6 +248,12 @@
 
     private async Task OnCheckForUpdate()
     {
+        // Drop the previous outcome so the prior chip ("Up to date",
+        // "Update to X.Y.Z", or an error) doesn't linger visibly while
+        // the new check is in flight. While _checking is true, the
+        // entire result UI hides and only the "Checking..." button
+        // shows -- accurate to the in-flight state.
+        _check = null;
         _checking = true;
         _applyMessage = null;
         try
