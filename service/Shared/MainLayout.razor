@@ -30,7 +30,14 @@
     *@
     <div class="header-update">
         <span class="header-version" title="Current version">@Updater.CurrentVersion</span>
-        @if (Updater.IsInstalled)
+        @* Two layered gates:
+            * Updater.IsInstalled: skip update controls when running
+              outside a Velopack install (dotnet run, portable zip).
+            * !_inWizard: skip update controls during /setup. Applying
+              an update restarts the service and wipes in-progress
+              wizard form state -- same reasoning as hiding the
+              secondary nav above. *@
+        @if (Updater.IsInstalled && !_inWizard)
         {
             <button type="button" class="header-btn"
                     @onclick="OnCheckForUpdate" disabled="@(_checking || _applying)">
@@ -43,7 +50,12 @@
                this gate, an eager operator could click again in that
                window and spawn a second orchestrator. A failed apply
                (e.g. transient download issue) leaves _applySuccess
-               false so the button stays clickable for retry. *@
+               false so the button stays clickable for retry.
+               OnCheckForUpdate resets _applySuccess so a fresh check
+               that returns HasUpdate brings the button back -- needed
+               when an apply reported success but the actual restart
+               somehow didn't happen, or when the operator wants to
+               re-attempt during the orchestrator's startup window. *@
             @if (_check is { HasUpdate: true } u && !_applySuccess)
             {
                 <button type="button" class="header-btn header-btn-primary"
@@ -51,31 +63,39 @@
                     @(_applying ? "Updating…" : $"Update to {u.AvailableVersion}")
                 </button>
             }
-            @if (_applyMessage is not null)
-            {
-                <span class="header-msg @(_applySuccess ? "header-msg-ok" : "header-msg-err")">@_applyMessage</span>
-            }
-            else if (_check is { } c)
-            {
-                @if (c.UpToDate)
+            @* role="status" + aria-live="polite" make this an ARIA live
+               region so screen readers announce check results ("Up to
+               date", error text) when they appear. The wrapping span
+               is always present even when empty so the live region
+               stays mounted -- inserting a node with content is what
+               assistive tech listens for. *@
+            <span class="header-status" role="status" aria-live="polite">
+                @if (_applyMessage is not null)
                 {
-                    <span class="header-msg header-msg-ok">✓ Up to date</span>
+                    <span class="header-msg @(_applySuccess ? "header-msg-ok" : "header-msg-err")">@_applyMessage</span>
                 }
-                else if (c.Error is not null)
+                else if (_check is { } c)
                 {
-                    @* Render the error message inline rather than hiding
-                       it behind a `title` tooltip (tooltips aren't
-                       reliably accessible to keyboard / screen-reader /
-                       touch users). The header's flex-wrap means a long
-                       error wraps to a new line rather than pushing the
-                       buttons off-screen; max-width caps it at a
-                       readable width. The full text is still in `title`
-                       too for hover affordance on mouse. *@
-                    <span class="header-msg header-msg-err" title="@c.Error">
-                        ✗ @c.Error
-                    </span>
+                    @if (c.UpToDate)
+                    {
+                        <span class="header-msg header-msg-ok">✓ Up to date</span>
+                    }
+                    else if (c.Error is not null)
+                    {
+                        @* Render the error message inline rather than hiding
+                           it behind a `title` tooltip (tooltips aren't
+                           reliably accessible to keyboard / screen-reader /
+                           touch users). The header's flex-wrap means a long
+                           error wraps to a new line rather than pushing the
+                           buttons off-screen; max-width caps it at a
+                           readable width. The full text is still in `title`
+                           too for hover affordance on mouse. *@
+                        <span class="header-msg header-msg-err" title="@c.Error">
+                            ✗ @c.Error
+                        </span>
+                    }
                 }
-            }
+            </span>
         }
     </div>
 </header>
@@ -253,9 +273,19 @@
         // the new check is in flight. While _checking is true, the
         // entire result UI hides and only the "Checking..." button
         // shows -- accurate to the in-flight state.
+        //
+        // Also reset _applySuccess. Without this, a successful apply
+        // hides the apply button forever (gated on `!_applySuccess`)
+        // -- but if the actual service restart didn't materialise (or
+        // the operator wants to re-attempt during the orchestrator's
+        // startup window), they'd be locked out of retrying from the
+        // UI. Resetting on a fresh check makes "Update to X.Y.Z" come
+        // back as soon as a new check confirms an update is still
+        // available.
         _check = null;
         _checking = true;
         _applyMessage = null;
+        _applySuccess = false;
         try
         {
             _check = await Updater.CheckAsync();
