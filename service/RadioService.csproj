@@ -6,6 +6,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-service-05d32913-eedb-4f71-b8ef-718338b60ad1</UserSecretsId>
     <Platforms>AnyCPU;x86</Platforms>
+    <!-- Embed the Gundi icon as a Win32 resource so it appears wherever
+         Windows shows RadioService.exe: the public-desktop shortcut
+         (ServiceManager.EnsureDesktopShortcut sets IconFile=exePath,
+         IconIndex=0, which picks the first embedded icon), Explorer
+         tile views, Task Manager, the Add/Remove Programs entry, and
+         the file-properties dialog. The same .ico is also passed to
+         vpk pack via its icon flag (see publish-velopack.ps1) so
+         installer chrome matches. Single source of truth at
+         assets/installer/. -->
+    <ApplicationIcon>..\assets\installer\gundi-logo.ico</ApplicationIcon>
     <!-- Match the existing namespace convention; without this, Razor codegen
          uses the assembly name (RadioService) and won't see service.* types. -->
     <RootNamespace>service</RootNamespace>
