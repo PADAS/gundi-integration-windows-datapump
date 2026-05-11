@@ -121,8 +121,18 @@ LIMIT 1000;
 
 **What you're looking for in the output:**
 
-- If you see lines like `Seq Scan on gps_location_data_base` and
-  `Sort` — **the diagnosis is confirmed.** Continue to Step 4.
+- If you see `Seq Scan on gps_location_data_base` plus several lines
+  of `Seq Scan on gps_location_data_YYYYMMDD` (daily partition tables
+  like `gps_location_data_20230413`, `gps_location_data_20230414`,
+  …) — **the table is partitioned.** Confirm the PostgreSQL major
+  version with `SELECT version();`. If it's PostgreSQL 10, you need
+  **Step 4B** below, not Step 4. PostgreSQL 10 doesn't propagate an
+  index from the parent to child partitions; each partition needs
+  its own index. PostgreSQL 11 and newer handle this automatically,
+  so on those Step 4 alone is sufficient.
+- If you see `Seq Scan on gps_location_data_base` and `Sort` with no
+  daily partition tables in the output — **the diagnosis is the
+  simple non-partitioned case.** Continue to Step 4.
 - If you instead see `Index Scan using <something> on
   gps_location_data_base` — the index already exists and the problem
   is something else. **Stop and contact Chris before changing
@@ -142,7 +152,11 @@ missing piece.
 
 ---
 
-## Step 4 — Create the index
+## Step 4 — Create the index (non-partitioned table)
+
+Use this step **only** if Step 3 showed `Seq Scan on
+gps_location_data_base` without daily partition tables. If you
+saw `gps_location_data_YYYYMMDD` lines, **skip to Step 4B**.
 
 Run exactly this:
 
@@ -173,13 +187,116 @@ FROM pg_stat_progress_create_index;
 
 `blocks_done` should be increasing.
 
+Then continue to Step 5.
+
+---
+
+## Step 4B — Create indexes on every partition (PostgreSQL 10 with partitioning)
+
+Use this step **only** if Step 3 showed multiple `Seq Scan on
+gps_location_data_YYYYMMDD` lines AND `SELECT version();` confirms
+PostgreSQL 10. On PG 11+, Step 4 alone is enough.
+
+### Why this is different
+
+PostgreSQL 10 does not propagate an index from a partitioned
+parent table to its child partitions. You have to create the same
+index on every child partition by hand. PG 11 fixed this; the
+single `CREATE INDEX` from Step 4 would have done the right thing
+on a newer database.
+
+### Generate the per-partition statements
+
+Run this **SELECT** in your SQL client. It produces one row per
+child partition; each row is a complete `CREATE INDEX
+CONCURRENTLY IF NOT EXISTS …` statement you'll execute in the
+next sub-step.
+
+```sql
+SELECT
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS '
+    || 'idx_' || c.relname || '_receive_datetime '
+    || 'ON ' || n.nspname || '.' || c.relname
+    || ' (receive_datetime);' AS create_stmt
+FROM pg_inherits i
+JOIN pg_class     c ON c.oid = i.inhrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE i.inhparent = 'dbo.gps_location_data_base'::regclass
+ORDER BY c.relname;
+```
+
+You should get a list of statements that looks roughly like:
+
+```
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_gps_location_data_20230413_receive_datetime ON dbo.gps_location_data_20230413 (receive_datetime);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_gps_location_data_20230414_receive_datetime ON dbo.gps_location_data_20230414 (receive_datetime);
+...
+```
+
+Expect anywhere from a handful to several hundred rows depending
+on how long the customer's database has been running.
+
+### Run them
+
+Copy the output and execute the statements. **Important PG 10
+quirk:** `CREATE INDEX CONCURRENTLY` cannot run inside a
+transaction block, so do **not** wrap them in `BEGIN; … COMMIT;`.
+Just paste them into psql (or run them one-at-a-time in pgAdmin
+with auto-commit on; see the "If something goes wrong" table at
+the end of this doc for pgAdmin's auto-commit toggle).
+
+Each statement takes a few seconds. The whole batch is safe to
+run while the database is in use.
+
+### `IF NOT EXISTS` makes the script re-runnable
+
+The generated SELECT + apply pattern is idempotent — partitions
+that already have the index get skipped. If new daily partitions
+appear later (PG 10 doesn't auto-index those either), running the
+SELECT again and applying any new rows will catch them.
+
+### Heads-up about future partitions
+
+This is a workaround for an existing index gap, not a permanent
+fix. Going forward, every new `gps_location_data_YYYYMMDD`
+partition the customer's database creates will start without an
+index. How that gets handled depends on how new partitions are
+provisioned on this box:
+
+- If created by a **partition manager** like `pg_partman`,
+  configure the manager's partition template to include the
+  index. Tell Chris which manager is in use; we can prepare the
+  template change.
+- If created **manually** by the customer or by a vendor script,
+  the new partition needs the index added manually too.
+- If you don't know how the partitions are getting created — ask
+  the customer; the answer affects whether this fix sticks long-
+  term.
+
+Then continue to Step 5.
+
 ---
 
 ## Step 5 — Verify the index works
 
 Re-run the `EXPLAIN` from Step 3. The plan should now contain
-**`Index Scan using idx_gps_location_data_base_receive_datetime`**
-instead of `Seq Scan` + `Sort`. That's the confirmation.
+`Index Scan using …` lines instead of `Seq Scan` lines on the
+gps tables. Specifically:
+
+- **Non-partitioned (after Step 4):** look for
+  `Index Scan using idx_gps_location_data_base_receive_datetime`
+  in place of `Seq Scan on gps_location_data_base` + `Sort`.
+- **Partitioned (after Step 4B):** every
+  `gps_location_data_YYYYMMDD` row in the plan should now read
+  `Index Scan using idx_gps_location_data_YYYYMMDD_receive_datetime`
+  instead of `Seq Scan`. The total cost in the plan's top line
+  should drop by roughly two orders of magnitude.
+
+If you still see `Seq Scan` on any partition after Step 4B, that
+specific partition didn't get the index (most likely because the
+SELECT in Step 4B missed it — re-run that SELECT to see if the
+list of generated statements covers every partition mentioned in
+the EXPLAIN, and apply any you didn't run the first time).
 
 ---
 
@@ -236,5 +353,15 @@ With the index, PG walks the index in already-sorted order, stops
 after 1000 rows, and the query completes in milliseconds regardless
 of how big the table grows.
 
-The index is one-time work. It does not need to be recreated after
-upgrades, restarts, or backups.
+The index itself is one-time work. It does not need to be recreated
+after upgrades, restarts, or backups.
+
+**Exception — partitioned databases on PostgreSQL 10.** When the
+table is partitioned (Step 4B applied), the index is per-partition,
+and new partitions created by the customer's database going
+forward will not inherit one. The fix is still durable for
+existing partitions, but every new daily partition needs its own
+index. PostgreSQL 11+ fixes this; an upgrade is the long-term
+answer. Re-running the Step 4B SELECT periodically is the
+short-term workaround — see the "Heads-up about future
+partitions" section under Step 4B.
