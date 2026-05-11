@@ -119,6 +119,17 @@ ORDER BY t0.receive_datetime ASC
 LIMIT 1000;
 ```
 
+*Implementation note for the curious:* the service at runtime
+sends this WHERE as a bound parameter (`> @lower_date`), not the
+literal `NOW() - INTERVAL` form above. The diagnostic uses
+`NOW() - INTERVAL` on purpose — it's a non-constant expression
+that defeats PostgreSQL's plan-time partition pruning, which
+forces the planner to evaluate every partition and exposes which
+ones lack indexes. A literal cutoff timestamp here would let
+the planner prune older partitions, hiding whether they have
+indexes at all. Don't "fix" this query to match the service's
+runtime form; it's deliberately different.
+
 **What you're looking for in the output:**
 
 - If you see `Seq Scan on gps_location_data_base` plus several lines
