@@ -132,22 +132,21 @@ runtime form; it's deliberately different.
 
 **What you're looking for in the output:**
 
-- If you see `Seq Scan on gps_location_data_base` plus several lines
-  of `Seq Scan on gps_location_data_YYYYMMDD` (daily partition tables
-  like `gps_location_data_20230413`, `gps_location_data_20230414`,
-  …) — **the table is partitioned.** Confirm the PostgreSQL major
-  version with `SELECT version();`. If it's PostgreSQL 10, you need
-  **Step 4B** below, not Step 4. PostgreSQL 10 doesn't propagate an
-  index from the parent to child partitions; each partition needs
-  its own index. PostgreSQL 11 and newer handle this automatically,
-  so on those Step 4 alone is sufficient.
-- If you see `Seq Scan on gps_location_data_base` and `Sort` with no
-  daily partition tables in the output — **the diagnosis is the
-  simple non-partitioned case.** Continue to Step 4.
+- If you see `Seq Scan on gps_location_data_base` plus several
+  lines of `Seq Scan on gps_location_data_YYYYMMDD` (daily
+  partition tables like `gps_location_data_20230413`,
+  `gps_location_data_20230414`, …) — **the table is partitioned.**
+  Go to **Step 4B** below, not Step 4. Each partition needs its
+  own index on `receive_datetime`; the one we'd create on the
+  parent table doesn't always reach the children. (See the note
+  at the top of Step 4B for the reason.)
+- If you see `Seq Scan on gps_location_data_base` and `Sort` with
+  no daily partition tables in the output — **the diagnosis is
+  the simple non-partitioned case.** Continue to Step 4.
 - If you instead see `Index Scan using <something> on
-  gps_location_data_base` — the index already exists and the problem
-  is something else. **Stop and contact Chris before changing
-  anything.**
+  gps_location_data_base` — the index already exists and the
+  problem is something else. **Stop and contact Chris before
+  changing anything.**
 
 You can also list the existing indexes on the table to double-check:
 
@@ -188,8 +187,9 @@ Notes:
   Messages panel, you're done.
 
 If the customer's table is *very* large and the operation seems
-hung after 30 minutes, run this in a *second* session to check
-progress:
+hung after 30 minutes, you can check progress.
+
+On **PostgreSQL 12 and newer** there's a dedicated progress view:
 
 ```sql
 SELECT phase, blocks_done, blocks_total
@@ -198,23 +198,58 @@ FROM pg_stat_progress_create_index;
 
 `blocks_done` should be increasing.
 
+On **PostgreSQL 10 or 11** that view doesn't exist; check that the
+backend is still alive and not stuck on a lock instead:
+
+```sql
+SELECT pid, state, wait_event_type, wait_event,
+       LEFT(query, 80) AS query
+FROM pg_stat_activity
+WHERE query ILIKE '%CREATE INDEX%CONCURRENTLY%'
+  AND state <> 'idle';
+```
+
+You should see one row with `state = active`. If `wait_event` is
+something like `transactionid` or `relation` for several minutes,
+another long transaction is blocking the index creation — usually
+that resolves on its own. If it doesn't, send the row output to
+Chris.
+
 Then continue to Step 5.
 
 ---
 
-## Step 4B — Create indexes on every partition (PostgreSQL 10 with partitioning)
+## Step 4B — Create indexes on every partition (partitioned tables)
 
-Use this step **only** if Step 3 showed multiple `Seq Scan on
-gps_location_data_YYYYMMDD` lines AND `SELECT version();` confirms
-PostgreSQL 10. On PG 11+, Step 4 alone is enough.
+Use this step if Step 3 showed multiple `Seq Scan on
+gps_location_data_YYYYMMDD` lines. This is correct for every
+partitioned setup we've seen — see the note below for the
+PostgreSQL-version nuance.
 
 ### Why this is different
 
-PostgreSQL 10 does not propagate an index from a partitioned
-parent table to its child partitions. You have to create the same
-index on every child partition by hand. PG 11 fixed this; the
-single `CREATE INDEX` from Step 4 would have done the right thing
-on a newer database.
+Whether the parent's index reaches the child partitions depends
+on *how* the table is partitioned, and the EXPLAIN output alone
+doesn't tell us which kind we're looking at:
+
+- **Inheritance-based partitioning** (`CREATE TABLE … INHERITS
+  (parent)`): the parent's index **never** propagates, on any
+  PostgreSQL version. You always need a per-partition index. This
+  is the older partitioning style and what we've actually seen
+  on Padas customer boxes.
+- **Declarative partitioning** (`CREATE TABLE … PARTITION OF
+  parent`, introduced in PG 10): the parent's index propagates
+  to children automatically — but **only on PostgreSQL 11 and
+  newer**. PG 10's declarative partitioning shipped without that
+  feature.
+
+The script in this step uses `pg_inherits`, which enumerates
+child tables regardless of partitioning style, and creates the
+index `IF NOT EXISTS` on each. So running it is correct for
+inheritance partitioning on any version, correct for declarative
+on PG 10, and harmless (no-op per partition) for declarative on
+PG 11+ where the children already have an inherited index. Safe
+to run any time Step 3 turned up partition lines.
 
 ### Generate the per-partition statements
 
@@ -249,12 +284,13 @@ on how long the customer's database has been running.
 
 ### Run them
 
-Copy the output and execute the statements. **Important PG 10
-quirk:** `CREATE INDEX CONCURRENTLY` cannot run inside a
-transaction block, so do **not** wrap them in `BEGIN; … COMMIT;`.
-Just paste them into psql (or run them one-at-a-time in pgAdmin
-with auto-commit on; see the "If something goes wrong" table at
-the end of this doc for pgAdmin's auto-commit toggle).
+Copy the output and execute the statements. **Important:**
+`CREATE INDEX CONCURRENTLY` cannot run inside a transaction
+block on any PostgreSQL version, so do **not** wrap them in
+`BEGIN; … COMMIT;`. The reliable way is psql — paste the
+statements in and each runs on its own. If you're in pgAdmin
+instead, see the "If something goes wrong" table at the end of
+this doc for the Auto-commit toggle pgAdmin needs.
 
 Each statement takes a few seconds. The whole batch is safe to
 run while the database is in use.
@@ -263,16 +299,21 @@ run while the database is in use.
 
 The generated SELECT + apply pattern is idempotent — partitions
 that already have the index get skipped. If new daily partitions
-appear later (PG 10 doesn't auto-index those either), running the
-SELECT again and applying any new rows will catch them.
+appear later without their own index, re-running the SELECT and
+applying any new rows will catch them.
 
 ### Heads-up about future partitions
 
-This is a workaround for an existing index gap, not a permanent
-fix. Going forward, every new `gps_location_data_YYYYMMDD`
-partition the customer's database creates will start without an
-index. How that gets handled depends on how new partitions are
-provisioned on this box:
+Whether new daily partitions need this treatment depends on the
+partitioning style and PostgreSQL version (see "Why this is
+different" at the top of Step 4B). For inheritance-based
+partitioning, every new partition will start without an index
+regardless of PostgreSQL version. For declarative partitioning,
+PG 11+ takes care of it automatically and there's nothing to do
+going forward.
+
+If new partitions will need indexes added, how it gets handled
+depends on how new partitions are provisioned on this box:
 
 - If created by a **partition manager** like `pg_partman`,
   configure the manager's partition template to include the
@@ -367,12 +408,23 @@ of how big the table grows.
 The index itself is one-time work. It does not need to be recreated
 after upgrades, restarts, or backups.
 
-**Exception — partitioned databases on PostgreSQL 10.** When the
-table is partitioned (Step 4B applied), the index is per-partition,
-and new partitions created by the customer's database going
-forward will not inherit one. The fix is still durable for
-existing partitions, but every new daily partition needs its own
-index. PostgreSQL 11+ fixes this; an upgrade is the long-term
-answer. Re-running the Step 4B SELECT periodically is the
-short-term workaround — see the "Heads-up about future
-partitions" section under Step 4B.
+**Exception — partitioned databases.** When the table is
+partitioned (Step 4B applied), the index is per-partition.
+Whether new daily partitions created by the customer's database
+will inherit one depends on the partitioning style and the
+PostgreSQL version:
+
+- **Inheritance-based partitioning** (any PG version): new
+  partitions don't inherit. Every new daily table needs its own
+  index. Re-run the Step 4B SELECT periodically — or, better,
+  fix the source of new partitions to add the index inline.
+- **Declarative partitioning on PG 10**: same as above — PG 10
+  shipped declarative partitioning without parent-to-child
+  index propagation.
+- **Declarative partitioning on PG 11+**: new partitions inherit
+  the parent's index automatically. Nothing to do going
+  forward.
+
+If unsure which kind, the safe move is to re-run Step 4B's
+SELECT every so often; it's idempotent and will catch any
+unindexed partitions.
