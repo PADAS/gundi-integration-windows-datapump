@@ -65,7 +65,7 @@ Get-Service "Gundi Radio Service"               # should be Running
 Get-Process RadioService | Select Name, UserName  # owner = NT AUTHORITY\SYSTEM
 ```
 
-Open <http://localhost:8080/> in a browser. Configure the database and
+Open <http://localhost:47823/> in a browser. Configure the database and
 at least one Gundi destination so the pump actually starts producing
 batches. Wait until the Status page shows non-zero "Total batches"
 and "Last batch" timestamps. This is what we'll preserve across the
@@ -98,7 +98,7 @@ the test is fine.
 
 Back on the test box, with v2.3.0 running:
 
-1. Browse to <http://localhost:8080/>, scroll to the **Updates** card.
+1. Browse to <http://localhost:47823/>, scroll to the **Updates** card.
 2. Note the displayed "Current version" — should read `2.3.0+<sha>`.
 3. Click **"Check for updates"**. The button should briefly show
    "Checking…" then change to display **"Update to 2.3.1"**.
@@ -129,7 +129,7 @@ Get-Content "C:\Program Files (x86)\GundiRadioService\current\state.json"
 
 Then in the browser:
 
-5. Refresh <http://localhost:8080/>. The Status page should now show
+5. Refresh <http://localhost:47823/>. The Status page should now show
    `2.3.1+<sha>` under "Current version".
 6. The "Last batch" timestamp from before the update should still be
    visible (cursor was preserved). Within a few seconds of the

@@ -149,7 +149,7 @@
             Smart-refresh helper used by the reconnect modal's button.
             Naively calling window.location.reload() too soon during an
             update lands on the same dead state -- the new service hasn't
-            bound port 8080 yet, the browser cache serves the old shell,
+            bound its UI port yet, the browser cache serves the old shell,
             or the request fails with connection-refused. So instead of
             reloading immediately, we poll a cheap GET to "/" (cache
             bypassed) until the server responds, then reload.

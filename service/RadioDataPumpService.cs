@@ -133,7 +133,7 @@ public RadioDataPumpService(ILogger<RadioDataPumpService> logger, PumpStatus sta
 
             if (routeConfig.DatabaseType == null)
             {
-                logger.Warn("Database type not configured. Open http://localhost:8080/ to set up the service.");
+                logger.Warn("Database type not configured. Open {0} to set up the service.", ServiceManager.LocalUiUrl);
                 _status.RecordError("Not configured. Open the web UI to set up the service.");
 
                 // Idle until either the operator saves config (reload fires)
