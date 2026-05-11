@@ -60,7 +60,7 @@ internal class Program
         // After the install hook fires, the MSI's interactive launch of
         // RadioService.exe should exit immediately — the service is now
         // registered, SCM will start it, and continuing on to start a
-        // web host as the operator would race the service for port 8080
+        // web host as the operator would race the service for the UI port
         // and leave a console window open that confuses the customer.
         bool exitAfterHook = false;
 
@@ -97,7 +97,7 @@ internal class Program
 
                 // Don't continue with the normal Main flow. SCM owns the
                 // service lifetime now; running the web host here would be
-                // a duplicate process competing for port 8080.
+                // a duplicate process competing for the UI port.
                 exitAfterHook = true;
             })
             .OnBeforeUninstallFastCallback(_ =>
@@ -134,6 +134,26 @@ internal class Program
                 LogManager.GetCurrentClassLogger().Info(
                     "Velopack OnAfterUpdate: updated to {0}. " +
                     "Service restart handled by the apply orchestrator.", v);
+
+                // Refresh the public-desktop shortcut. RegisterAsync runs
+                // only on install (Velopack's OnAfterInstall hook), not on
+                // update -- but if the shortcut URL has changed since the
+                // operator installed (e.g. we moved the embedded UI to
+                // a different port in a later release), the existing .url file
+                // still points at the old URL. Rewrite it here so the
+                // shortcut keeps working across updates. Best-effort:
+                // a failure logs but doesn't abort the hook.
+                try
+                {
+                    var exePath = Path.Combine(AppContext.BaseDirectory, ServiceManager.ExecutableName);
+                    ServiceManager.EnsureDesktopShortcut(exePath);
+                }
+                catch (Exception ex)
+                {
+                    LogManager.GetCurrentClassLogger()
+                        .Warn(ex, "Failed to refresh desktop shortcut on update.");
+                }
+
                 exitAfterHook = true;
             })
             .Run();
@@ -161,7 +181,7 @@ internal class Program
         // the install dir. In our deployment shape, neither is correct:
         // the binary is meant to run as a Windows Service under SCM, and
         // any other launch produces a non-SCM-managed process that grabs
-        // port 8080 outside SCM's view -- which races the SCM-launched
+        // the UI port outside SCM's view -- which races the SCM-launched
         // service for the bind, leaves SCM thinking the service is
         // Stopped while a rogue process serves requests, and breaks
         // every administrative gesture (sc start, Get-Service, restart
@@ -179,7 +199,7 @@ internal class Program
         //     block those.
         //
         // The operator's path to the UI is the desktop shortcut (a .url
-        // pointing at http://localhost:8080/), not the exe.
+        // pointing at the embedded UI URL), not the exe.
         if (args.Length == 0
             && !Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService()
             && await IsServiceRegisteredAsync())
@@ -192,7 +212,7 @@ internal class Program
             LogManager.GetCurrentClassLogger().Info(
                 "Interactive launch with no args; service is registered. Exiting -- " +
                 "the service is owned by SCM. Use the desktop shortcut or browse " +
-                "to http://localhost:8080/ to access the UI.");
+                "to {0} to access the UI.", ServiceManager.LocalUiUrl);
             return;
         }
 
@@ -262,8 +282,10 @@ internal class Program
         builder.WebHost.ConfigureKestrel(opts =>
         {
             // 127.0.0.1 keeps Windows Firewall happy and prevents accidental
-            // exposure to the LAN. Configurable later.
-            opts.ListenLocalhost(8080);
+            // exposure to the LAN. Port is a single-source const in
+            // ServiceManager so the bind, the desktop shortcut URL, and the
+            // log hints elsewhere all change together.
+            opts.ListenLocalhost(ServiceManager.LocalUiPort);
         });
 
         builder.Services.AddWindowsService(options =>
@@ -332,7 +354,7 @@ internal class Program
         // -------------------------------------------------------------
         // Defense against cross-site WebSocket hijacking and CSRF: a
         // browser tab on a malicious site could open a WebSocket to
-        // http://localhost:8080/_blazor and ride a logged-in operator's
+        // the embedded UI's /_blazor endpoint and ride a logged-in operator's
         // ambient Windows credentials. Reject any request whose Origin
         // header isn't localhost (or empty, which is non-browser tooling
         // like curl).

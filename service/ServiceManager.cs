@@ -23,11 +23,27 @@ public static class ServiceManager
     private const string Description =
         "A Gundi/EarthRanger service that reads radio location data from a local database.";
 
-    // The embedded UI is bound to localhost:8080 (see Program.cs); the
-    // shortcut just opens the operator's default browser there. Kept
-    // in sync by hand -- if the bind ever moves off 8080 this string
-    // and the Kestrel ListenLocalhost call need to change together.
-    private const string LocalUiUrl = "http://localhost:8080/";
+    // Single source of truth for the embedded UI's bind. Program.cs
+    // reads LocalUiPort for Kestrel's ListenLocalhost; the shortcut
+    // file (this class) and the "open the UI" log hints elsewhere
+    // read LocalUiUrl. Both update together because LocalUiUrl
+    // interpolates LocalUiPort.
+    //
+    // LocalUiUrl is `static readonly` rather than `const` because C#'s
+    // const-string interpolation requires string operands (CS0133
+    // otherwise on an int operand). The runtime cost is one
+    // type-init-time string concat, which is irrelevant for a service
+    // process.
+    //
+    // 47823 is in the IANA Registered range (1024-49151) but isn't
+    // assigned to any common software; well clear of the dev-tool
+    // 3000/5000/8000/8080 cluster and the database 3306/5432/27017
+    // cluster. Below Windows's default ephemeral range (49152-65535)
+    // so the kernel won't briefly hand it out to an outgoing
+    // connection between service restarts. Localhost-only so this
+    // is purely a local-conflict consideration, not a network one.
+    internal const int LocalUiPort = 47823;
+    internal static readonly string LocalUiUrl = $"http://localhost:{LocalUiPort}/";
 
     // Naming and location of the public-desktop shortcut. CommonDesktopDirectory
     // is the All Users desktop -- the shortcut appears for every account on
@@ -203,7 +219,7 @@ public static class ServiceManager
     /// WScript.Shell COM dance required, just plain text. IconFile points
     /// at the registered exe so Windows picks up its embedded icon.
     /// </summary>
-    private static void EnsureDesktopShortcut(string exePath)
+    internal static void EnsureDesktopShortcut(string exePath)
     {
         var desktop = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
         if (string.IsNullOrEmpty(desktop))
