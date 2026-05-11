@@ -1,6 +1,5 @@
 @page "/"
 @inject PumpStatus Pump
-@inject UpdateService Updater
 @inject ConfigService ConfigSvc
 @implements IDisposable
 
@@ -45,10 +44,6 @@
         </span>
     </div>
     <div class="stat">
-        <span class="stat-label">Version</span>
-        <span class="stat-value">@Pump.Version</span>
-    </div>
-    <div class="stat">
         <span class="stat-label">Started</span>
         <span class="stat-value">@FormatTimestamp(Pump.StartedAt) (@Ago(Pump.StartedAt))</span>
     </div>
@@ -71,83 +66,41 @@
     </div>
 </div>
 
-<div class="card">
-    <h2>Last batch</h2>
-    @if (Pump.LastBatchAt is null)
-    {
-        <p style="color: #888; font-style: italic;">No batches sent yet.</p>
-    }
-    else
-    {
+<div class="card-row">
+    <div class="card">
+        <h2>Last batch</h2>
+        @if (Pump.LastBatchAt is null)
+        {
+            <p style="color: #888; font-style: italic;">No batches sent yet.</p>
+        }
+        else
+        {
+            <div class="stat">
+                <span class="stat-label">When</span>
+                <span class="stat-value">@FormatTimestamp(Pump.LastBatchAt!.Value) (@Ago(Pump.LastBatchAt!.Value))</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Records</span>
+                <span class="stat-value">@Pump.LastBatchCount</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Cursor</span>
+                <span class="stat-value">@(Pump.LastCursor ?? "—")</span>
+            </div>
+        }
+    </div>
+
+    <div class="card">
+        <h2>Totals since start</h2>
         <div class="stat">
-            <span class="stat-label">When</span>
-            <span class="stat-value">@FormatTimestamp(Pump.LastBatchAt!.Value) (@Ago(Pump.LastBatchAt!.Value))</span>
+            <span class="stat-label">Batches</span>
+            <span class="stat-value">@Pump.TotalBatches.ToString("N0")</span>
         </div>
         <div class="stat">
             <span class="stat-label">Records</span>
-            <span class="stat-value">@Pump.LastBatchCount</span>
+            <span class="stat-value">@Pump.TotalRecords.ToString("N0")</span>
         </div>
-        <div class="stat">
-            <span class="stat-label">Cursor</span>
-            <span class="stat-value">@(Pump.LastCursor ?? "—")</span>
-        </div>
-    }
-</div>
-
-<div class="card">
-    <h2>Totals since start</h2>
-    <div class="stat">
-        <span class="stat-label">Batches</span>
-        <span class="stat-value">@Pump.TotalBatches.ToString("N0")</span>
     </div>
-    <div class="stat">
-        <span class="stat-label">Records</span>
-        <span class="stat-value">@Pump.TotalRecords.ToString("N0")</span>
-    </div>
-</div>
-
-<div class="card">
-    <h2>Updates</h2>
-    <div class="stat">
-        <span class="stat-label">Current version</span>
-        <span class="stat-value">@Updater.CurrentVersion</span>
-    </div>
-    @if (!Updater.IsInstalled)
-    {
-        <p class="hint" style="margin-top: 0.75rem;">
-            Updates are unavailable in this build (running from source or
-            outside a Velopack install).
-        </p>
-    }
-    else
-    {
-        <div style="margin-top: 1rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-            <button @onclick="OnCheckForUpdate" disabled="@(_checking || _applying)">
-                @(_checking ? "Checking…" : "Check for updates")
-            </button>
-            @if (_check is { HasUpdate: true } u)
-            {
-                <button @onclick="OnApplyUpdate" disabled="@_applying" class="primary">
-                    @(_applying ? "Updating…" : $"Update to {u.AvailableVersion}")
-                </button>
-            }
-            @if (_applyMessage is not null)
-            {
-                <span class="@(_applySuccess ? "saved-msg" : "error-msg")">@_applyMessage</span>
-            }
-            else if (_check is { } c)
-            {
-                @if (c.UpToDate)
-                {
-                    <span class="saved-msg">✓ Up to date.</span>
-                }
-                else if (c.Error is not null)
-                {
-                    <span class="error-msg">✗ @c.Error</span>
-                }
-            }
-        </div>
-    }
 </div>
 
 <div class="card">
@@ -164,8 +117,9 @@
 </div>
 
 <style>
-    .saved-msg { color: #155724; background: #d4edda; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.9rem; }
-    .error-msg { color: #721c24; background: #f8d7da; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.9rem; }
+    /* .saved-msg and .error-msg moved with the Updates card -- they're
+       defined globally in MainLayout.razor for the form-primitive
+       sections, and no Status-page markup uses them anymore. */
     .hint { color: #888; font-size: 0.9rem; margin: 0; }
     a.primary-button { display: inline-block; background: #0071e3; color: white; padding: 0.5rem 1.25rem; border-radius: 6px; text-decoration: none; font-size: 0.95rem; }
     a.primary-button:hover { background: #0077ed; }
@@ -175,12 +129,6 @@
 </style>
 
 @code {
-    private UpdateCheckOutcome? _check;
-    private bool _checking;
-    private bool _applying;
-    private string? _applyMessage;
-    private bool _applySuccess;
-
     // Drives the relative-time labels ("5s ago" -> "6s ago" -> ...) between
     // PumpStatus.Changed events. Without this, those strings only refresh
     // when a batch actually fires, so the page looks frozen during quiet
@@ -235,42 +183,6 @@
     private void OnDismissError()
     {
         Pump.ClearError();
-    }
-
-    private async Task OnCheckForUpdate()
-    {
-        _checking = true;
-        _applyMessage = null;
-        try
-        {
-            _check = await Updater.CheckAsync();
-        }
-        finally
-        {
-            _checking = false;
-        }
-    }
-
-    private async Task OnApplyUpdate()
-    {
-        _applying = true;
-        _applyMessage = null;
-        try
-        {
-            // Recovery from the inevitable circuit loss is handled by the
-            // reconnect modal in _Host.cshtml: when Blazor gives up
-            // reconnecting (the server-side circuit is destroyed when the
-            // service restarts and can't be reattached), the operator
-            // sees a "Refresh page" button. No work to do here beyond
-            // kicking off the apply and surfacing the response.
-            var outcome = await Updater.ApplyAsync();
-            _applyMessage = outcome.Message;
-            _applySuccess = outcome.Success;
-        }
-        finally
-        {
-            _applying = false;
-        }
     }
 
     private string FormatTimestamp(DateTime utc)
