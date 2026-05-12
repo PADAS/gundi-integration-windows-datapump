@@ -7,8 +7,10 @@ Install takes about three minutes once you're at the box.
 - A Windows 10 or Windows 11 PC (or Windows Server 2019+).
 - **Administrator rights** on that PC — the installer registers a
   Windows Service, which requires elevation.
-- **Network access** from the PC to
-  `https://*.cdip-api*.pamdas.org` (where Gundi listens).
+- **Network access** from the PC to `https://sensors.api.gundiservice.org`
+  (the default Gundi destination). If your customer points the service
+  at a different destination URL — Gundi staging, an EarthRanger
+  endpoint, etc. — confirm the firewall lets that one through instead.
 - The connection details for the customer's radio dispatch
   database (host, port, database name, username, password) and
   schema if it's PostgreSQL-style.

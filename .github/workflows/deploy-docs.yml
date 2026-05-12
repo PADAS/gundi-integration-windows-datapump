@@ -37,7 +37,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          # Pinned to a specific minor version so a future change
+          # in ubuntu-latest's default 3.x doesn't quietly become
+          # the runtime for our docs build. requirements.txt pins
+          # mkdocs-material; this pin closes the same loop on the
+          # interpreter underneath it. Bump intentionally when you
+          # want a newer Python.
+          python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: 'docs-site/requirements.txt'
 

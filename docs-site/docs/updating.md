@@ -41,8 +41,16 @@ About a minute end-to-end. In order:
 <!-- Replace with a screen recording of the full flow:
      click Update → success message → connection lost modal →
      click Refresh → page reloads on new version.
-     Suggested file: videos/update-flow.mp4 (about 60 seconds). -->
-<!-- ![Update flow placeholder](videos/update-flow.mp4){ width="800" } -->
+     Suggested file: videos/update-flow.mp4 (about 60 seconds).
+     MP4 needs an HTML <video> block, not image syntax (Markdown
+     image syntax only renders to <img>, so an .mp4 there would
+     just be a broken-image icon). Uncomment the block below when
+     the recording is in place. -->
+<!--
+<video controls width="800">
+  <source src="videos/update-flow.mp4" type="video/mp4">
+</video>
+-->
 
 ## What survives the update
 

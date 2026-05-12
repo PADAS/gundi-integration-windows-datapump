@@ -43,11 +43,14 @@ initial poll fetches the most recent two days of records. On
 a large unindexed table, that can take longer than the
 configured timeout (default 5 minutes). The log line is
 `Database error (attempt N/5)` with a `Timeout` exception.
-The fix is on the database side — see the onsite-techs guide
-on adding the right index.
+The fix is on the database side — usually adding an index on
+the timestamp column the pump filters by. Download the
+diagnostic bundle (Status page → Support card) and send it to
+your Padas contact; a support tech can confirm and provide
+the exact SQL for your database.
 
 **Group filters exclude everything.** If "Send all
-observations" is off and your alias list is wrong (a guid
+observations" is off and your alias list is wrong (a GUID
 typo, or filters for a group that has no records), the pump
 will run silently with no posts. Check the Configuration
 page → destinations → group aliases.
