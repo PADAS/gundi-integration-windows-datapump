@@ -19,6 +19,15 @@ on:
   # something.
   workflow_dispatch:
 
+# Serialize deploys so two pushes to main in quick succession can't race
+# each other on the shared gh-pages branch (which would manifest as a
+# failed push or an older run overwriting a newer deploy). cancel-in-progress
+# is fine here: gh-pages is regenerated from scratch each run, so dropping
+# a superseded run loses nothing.
+concurrency:
+  group: deploy-docs-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -29,10 +38,9 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          # mkdocs gh-deploy needs full history to figure out which
-          # commit produced the current site. Default is shallow.
-          fetch-depth: 0
+        # Default shallow checkout is fine. mkdocs gh-deploy --no-history
+        # rewrites gh-pages as a single commit, so it doesn't care about
+        # main's history depth.
 
       - name: Set up Python
         uses: actions/setup-python@v5
