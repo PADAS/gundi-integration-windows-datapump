@@ -1,0 +1,5 @@
+# Pinned for reproducible CI builds. Bump intentionally when you want
+# new theme features; the action will pick up the new versions on next
+# push. mkdocs-material brings in mkdocs, pymdown-extensions, and the
+# other transitives we need -- no need to list them individually.
+mkdocs-material==9.5.39

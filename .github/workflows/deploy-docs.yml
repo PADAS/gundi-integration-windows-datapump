@@ -1,0 +1,61 @@
+name: Deploy docs to GitHub Pages
+
+# Builds the Material for MkDocs site in docs-site/ and pushes the
+# rendered HTML to the gh-pages branch. The repo's Settings -> Pages
+# is configured to publish from gh-pages, so a push to that branch
+# becomes a live update at
+# https://padas.github.io/gundi-integration-windows-datapump/.
+#
+# Only runs on pushes to main that touch the docs-site directory or
+# this workflow file. Code-only commits don't trigger a docs rebuild.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs-site/**'
+      - '.github/workflows/deploy-docs.yml'
+  # Manual run from the Actions tab in case the auto-trigger missed
+  # something.
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      # mkdocs gh-deploy pushes a commit to gh-pages; write access
+      # is required.
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          # mkdocs gh-deploy needs full history to figure out which
+          # commit produced the current site. Default is shallow.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+          cache-dependency-path: 'docs-site/requirements.txt'
+
+      - name: Install MkDocs + Material theme
+        run: pip install --requirement docs-site/requirements.txt
+
+      - name: Configure git author for the gh-pages commit
+        # mkdocs gh-deploy makes a real git commit on gh-pages.
+        # Set a sensible bot identity so the history is readable.
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Build and deploy
+        # --force overwrites the gh-pages branch contents on each
+        # deploy (the source of truth is main + docs-site/; gh-pages
+        # is just rendered output, regenerated every push).
+        # --no-history rewrites a single-commit gh-pages branch
+        # rather than appending; keeps the rendered branch tiny.
+        working-directory: docs-site
+        run: mkdocs gh-deploy --force --no-history

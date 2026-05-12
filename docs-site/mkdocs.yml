@@ -1,0 +1,101 @@
+# Site identity
+site_name: Gundi Radio Service
+site_description: >-
+  Forward radio location data from local Windows dispatch consoles to
+  Gundi / EarthRanger. A small Windows Service with an embedded web UI
+  for setup, monitoring, and auto-updates.
+
+# Repository link surfaces in the top-right of the header and in
+# per-page "edit this page" links. site_url is where GitHub Pages
+# publishes -- update if you ever move to a custom domain.
+site_url: https://padas.github.io/gundi-integration-windows-datapump/
+repo_url: https://github.com/PADAS/gundi-integration-windows-datapump
+repo_name: PADAS/gundi-integration-windows-datapump
+edit_uri: edit/main/docs-site/docs/
+
+# The Markdown source for this site lives in docs-site/docs/, kept
+# separate from the repo's existing docs/ folder (internal notes like
+# onsite-postgres-index-fix.md aren't for public consumption). Built
+# output goes to the gh-pages branch via the GitHub Action; never
+# commit the rendered site to main.
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    # SPA-like navigation: pages swap in without a full reload.
+    - navigation.instant
+    # URL updates as the operator scrolls so deep links to a section
+    # work after they share the URL.
+    - navigation.tracking
+    # Top-level sections become tabs in the header.
+    - navigation.tabs
+    # Sidebar shows the page outline.
+    - toc.follow
+    # Copy button on every code block.
+    - content.code.copy
+    # "Edit this page" pencil link per page (uses edit_uri above).
+    - content.action.edit
+    # Search affordances.
+    - search.suggest
+    - search.highlight
+  palette:
+    # Light scheme (default). Primary blue matches the embedded UI's
+    # accent color so the site visually echoes the app it documents.
+    - scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    # Dark scheme — material/slate is the standard dark companion.
+    - scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+  # Drop a logo here once you have one:
+  # logo: images/gundi-logo.svg
+  # favicon: images/favicon.png
+
+markdown_extensions:
+  # Admonition boxes: !!! note / !!! warning / !!! tip etc.
+  - admonition
+  # HTML attributes on Markdown elements -- needed for image sizing,
+  # custom IDs, etc.
+  - attr_list
+  # Markdown inside HTML blocks (so you can use the same syntax
+  # inside <div> wrappers).
+  - md_in_html
+  # GitHub-flavoured table syntax.
+  - tables
+  # Permalinks on each heading so they can be deep-linked.
+  - toc:
+      permalink: true
+  # Collapsible details/summary blocks.
+  - pymdownx.details
+  # Fenced code blocks + custom-format extensions. The mermaid fence
+  # below renders ```mermaid blocks as diagrams.
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  # Tabbed content (e.g. "Windows" / "macOS" alternative paths).
+  - pymdownx.tabbed:
+      alternate_style: true
+  # Syntax highlighting with line anchors.
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+
+nav:
+  - Home: index.md
+  - Get started: getting-started.md
+  - Using the service: using-the-service.md
+  - Updating: updating.md
+  - Troubleshooting: troubleshooting.md
