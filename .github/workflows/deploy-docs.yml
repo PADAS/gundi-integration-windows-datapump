@@ -1,0 +1,75 @@
+name: Deploy docs to GitHub Pages
+
+# Builds the Material for MkDocs site in docs-site/ and pushes the
+# rendered HTML to the gh-pages branch. The repo's Settings -> Pages
+# is configured to publish from gh-pages, so a push to that branch
+# becomes a live update at
+# https://padas.github.io/gundi-integration-windows-datapump/.
+#
+# Only runs on pushes to main that touch the docs-site directory or
+# this workflow file. Code-only commits don't trigger a docs rebuild.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs-site/**'
+      - '.github/workflows/deploy-docs.yml'
+  # Manual run from the Actions tab in case the auto-trigger missed
+  # something.
+  workflow_dispatch:
+
+# Serialize deploys so two pushes to main in quick succession can't race
+# each other on the shared gh-pages branch (which would manifest as a
+# failed push or an older run overwriting a newer deploy). cancel-in-progress
+# is fine here: gh-pages is regenerated from scratch each run, so dropping
+# a superseded run loses nothing.
+concurrency:
+  group: deploy-docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      # mkdocs gh-deploy pushes a commit to gh-pages; write access
+      # is required.
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        # Default shallow checkout is fine. mkdocs gh-deploy --no-history
+        # rewrites gh-pages as a single commit, so it doesn't care about
+        # main's history depth.
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Pinned to a specific minor version so a future change
+          # in ubuntu-latest's default 3.x doesn't quietly become
+          # the runtime for our docs build. requirements.txt pins
+          # mkdocs-material; this pin closes the same loop on the
+          # interpreter underneath it. Bump intentionally when you
+          # want a newer Python.
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'docs-site/requirements.txt'
+
+      - name: Install MkDocs + Material theme
+        run: pip install --requirement docs-site/requirements.txt
+
+      - name: Configure git author for the gh-pages commit
+        # mkdocs gh-deploy makes a real git commit on gh-pages.
+        # Set a sensible bot identity so the history is readable.
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Build and deploy
+        # --force overwrites the gh-pages branch contents on each
+        # deploy (the source of truth is main + docs-site/; gh-pages
+        # is just rendered output, regenerated every push).
+        # --no-history rewrites a single-commit gh-pages branch
+        # rather than appending; keeps the rendered branch tiny.
+        working-directory: docs-site
+        run: mkdocs gh-deploy --force --no-history
