@@ -77,13 +77,14 @@ markdown_extensions:
       permalink: true
   # Collapsible details/summary blocks.
   - pymdownx.details
-  # Fenced code blocks + custom-format extensions. The mermaid fence
-  # below renders ```mermaid blocks as diagrams.
-  - pymdownx.superfences:
-      custom_fences:
-        - name: mermaid
-          class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
+  # Fenced code blocks. (Mermaid diagram rendering was originally
+  # configured here, but rendering Mermaid reliably needs more setup
+  # than the superfences hook alone provides -- bundled Material
+  # support varies by version, and CDN-loaded mermaid.js introduces
+  # an external dependency we'd rather not take on blindly. Removed
+  # until an actual diagram is needed; at that point add it back
+  # with a tested init and an explicit JS source.)
+  - pymdownx.superfences
   # Tabbed content (e.g. "Windows" / "macOS" alternative paths).
   - pymdownx.tabbed:
       alternate_style: true
@@ -91,7 +92,12 @@ markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
-  - pymdownx.snippets
+  # NB: pymdownx.snippets was considered but deliberately omitted.
+  # It enables --8<-- file-include syntax, and with relative paths
+  # an author could pull docs/ (the repo's internal-notes folder)
+  # into the public site by accident. If we want snippets later,
+  # re-enable with `base_path: [docs]` + `check_paths: true` so
+  # includes can't escape the public docs tree.
 
 nav:
   - Home: index.md

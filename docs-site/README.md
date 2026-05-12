@@ -102,12 +102,15 @@ simplest path. Capture with
 ![Wizard walkthrough](videos/first-run-wizard.gif){ width="800" }
 ```
 
-For longer clips (more than ~20 seconds), use **MP4**. Material
-for MkDocs supports `<video>` directly:
+For longer clips (more than ~20 seconds), use **MP4**. Markdown
+image syntax (`![](…)`) renders to `<img>` and won't embed a
+video, so write the raw HTML block instead. The path is relative
+to the page's location at `docs-site/docs/`, and the `videos/`
+folder is a sibling:
 
 ```html
 <video controls width="800">
-  <source src="../videos/update-flow.mp4" type="video/mp4">
+  <source src="videos/update-flow.mp4" type="video/mp4">
 </video>
 ```
 
