@@ -44,6 +44,16 @@ public class HeartbeatService : BackgroundService
     /// </summary>
     private static readonly TimeSpan MinInterval = TimeSpan.FromMinutes(1);
 
+    /// <summary>
+    /// Ceiling for the configured interval. <c>Task.Delay(TimeSpan)</c>
+    /// throws <c>ArgumentOutOfRangeException</c> for delays greater
+    /// than ~49.7 days (uint.MaxValue-1 milliseconds), which would
+    /// crash this hosted service's loop on first wake. 30 days is well
+    /// inside that envelope while still being effectively "never" for
+    /// any operator who wants the heartbeat dialled all the way down.
+    /// </summary>
+    private static readonly TimeSpan MaxInterval = TimeSpan.FromDays(30);
+
     private readonly TimeSpan _interval;
     private readonly PumpStatus _status;
 
@@ -51,16 +61,17 @@ public class HeartbeatService : BackgroundService
     {
         _status = status;
         _interval = ResolveInterval(config);
-        logger.Info("HeartbeatService starting; interval = {0} minutes.",
-            (int)_interval.TotalMinutes);
+        logger.Info("HeartbeatService starting; interval = {0}.",
+            FormatMinutes(_interval));
     }
 
     /// <summary>
     /// Reads <c>Heartbeat:IntervalMinutes</c> from configuration, falls
     /// back to <see cref="DefaultInterval"/> on a missing or unparseable
-    /// value, and clamps to <see cref="MinInterval"/>. Lives as a static
-    /// method so the constructor stays readable and the resolution rules
-    /// are unit-testable in principle.
+    /// value, and clamps to <see cref="MinInterval"/> /
+    /// <see cref="MaxInterval"/>. Lives as a static method so the
+    /// constructor stays readable and the resolution rules are
+    /// unit-testable in principle.
     /// </summary>
     private static TimeSpan ResolveInterval(IConfiguration config)
     {
@@ -70,20 +81,44 @@ public class HeartbeatService : BackgroundService
         if (!int.TryParse(raw, out var minutes))
         {
             logger.Warn("Heartbeat:IntervalMinutes='{0}' is not an integer; " +
-                        "falling back to {1} minutes.",
-                        raw, (int)DefaultInterval.TotalMinutes);
+                        "falling back to {1}.",
+                        raw, FormatMinutes(DefaultInterval));
             return DefaultInterval;
         }
 
         var requested = TimeSpan.FromMinutes(minutes);
         if (requested < MinInterval)
         {
-            logger.Warn("Heartbeat:IntervalMinutes={0} is below the {1}-minute " +
-                        "minimum; clamping to {1}.",
-                        minutes, (int)MinInterval.TotalMinutes);
+            logger.Warn("Heartbeat:IntervalMinutes={0} is below the {1} minimum; " +
+                        "clamping to {1}.",
+                        minutes, FormatMinutes(MinInterval));
             return MinInterval;
         }
+        if (requested > MaxInterval)
+        {
+            logger.Warn("Heartbeat:IntervalMinutes={0} exceeds the {1} ceiling " +
+                        "(Task.Delay would throw on a value larger than ~49 days); " +
+                        "clamping to {1}.",
+                        minutes, FormatMinutes(MaxInterval));
+            return MaxInterval;
+        }
         return requested;
+    }
+
+    /// <summary>
+    /// Formats a TimeSpan as a minutes-or-friendlier string with correct
+    /// pluralisation, so operator-facing log lines don't read
+    /// "1 minutes" or "clamping to 1." For values that exceed an hour,
+    /// includes a parenthesised hours/days hint so the operator doesn't
+    /// have to mentally divide -- "1440 minutes (1 day)".
+    /// </summary>
+    private static string FormatMinutes(TimeSpan span)
+    {
+        var minutes = (int)span.TotalMinutes;
+        var unit = minutes == 1 ? "minute" : "minutes";
+        if (span.TotalHours < 1) return $"{minutes} {unit}";
+        if (span.TotalDays < 1)  return $"{minutes} {unit} ({span.TotalHours:0.#} hours)";
+        return $"{minutes} {unit} ({span.TotalDays:0.#} days)";
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
