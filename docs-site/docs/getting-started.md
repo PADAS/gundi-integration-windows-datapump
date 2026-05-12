@@ -69,6 +69,8 @@ through four short steps:
    groups from the database via the **"Pick from database…"**
    button.
 4. **Review & save.** Confirm the summary, click **Finish**.
+   (The button momentarily reads "Saving…" while the configuration
+   is written and the pump is reloading.)
 
 <!-- Replace with a screen recording of walking through the
      wizard. Suggested file: videos/first-run-wizard.mp4 (or .gif
@@ -76,7 +78,7 @@ through four short steps:
      a successful Test connection and Test API key. -->
 <!-- ![First-run wizard walkthrough placeholder](videos/first-run-wizard.gif){ width="800" } -->
 
-The service starts pumping data immediately after Save. You can
+The service starts pumping data immediately after Finish. You can
 close the browser; the service keeps running.
 
 ## Step 4 — Verify

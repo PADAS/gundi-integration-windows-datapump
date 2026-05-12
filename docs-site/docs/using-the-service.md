@@ -18,7 +18,7 @@ Four cards on the Status page, in this order:
 **Pump status.** Whether the pump is currently Running, Paused,
 or Stopped. The Started timestamp tells you when the service last
 came up. If something has gone wrong, a yellow "Last error" box
-appears beneath the state — dismissable with the × on the right.
+appears beneath the state — dismissible with the × on the right.
 
 **Last batch.** When the most recent batch was forwarded, how
 many records it contained, and the cursor at the time. The "X

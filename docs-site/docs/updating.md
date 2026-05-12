@@ -28,7 +28,7 @@ one of three states:
 About a minute end-to-end. In order:
 
 1. The service downloads the new version into a staging area.
-2. A "Update downloaded" success message appears.
+2. An "Update downloaded" success message appears.
 3. The service shuts itself down so the file swap can complete.
 4. Your browser tab loses its connection — a **Connection
    lost** modal appears with a **Refresh page** button.

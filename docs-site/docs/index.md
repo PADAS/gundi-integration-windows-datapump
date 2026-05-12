@@ -11,8 +11,11 @@ monitoring, and self-updates.
 <!-- Replace with a screenshot of the Status page (Pump status card +
      header version). Suggested file: images/status-page.png.
      Recommended capture: Edge or Chrome at ~1200x800, the service
-     in the Running state with at least one batch under its belt. -->
-![Status page screenshot placeholder](images/status-page.png){ width="800" }
+     in the Running state with at least one batch under its belt.
+     Until the image is added, this reference stays commented so the
+     landing page doesn't ship a broken-image icon. -->
+<!-- ![Status page](images/status-page.png){ width="800" } -->
+
 
 ## What it does
 
