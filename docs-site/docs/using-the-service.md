@@ -11,7 +11,7 @@ type `http://localhost:47823` into a browser on the same box.
 <!-- Replace with a Status-page screenshot taken on a healthy
      install with a few thousand batches under its belt.
      Suggested file: images/status-page-healthy.png. -->
-<!-- ![Status page placeholder](images/status-page-healthy.png){ width="800" } -->
+![Status page placeholder](images/status-page-healthy.png){ width="800" }
 
 Four cards on the Status page, in this order:
 
