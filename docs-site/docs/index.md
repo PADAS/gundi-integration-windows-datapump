@@ -14,7 +14,7 @@ monitoring, and self-updates.
      in the Running state with at least one batch under its belt.
      Until the image is added, this reference stays commented so the
      landing page doesn't ship a broken-image icon. -->
-<!-- ![Status page](images/status-page.png){ width="800" } -->
+![Status page](images/status-page.png){ width="800" }
 
 
 ## What it does
