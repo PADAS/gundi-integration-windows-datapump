@@ -21,7 +21,7 @@ one of three states:
 <!-- Replace with a header-area screenshot showing the
      "Update to X.Y.Z" button next to the version. Suggested file:
      images/header-update-available.png. -->
-<!-- ![Header with update available placeholder](images/header-update-available.png){ width="800" } -->
+![Header with update available placeholder](images/header-update-available.png){ width="800" }
 
 ## What happens when you click "Update to X.Y.Z"
 
