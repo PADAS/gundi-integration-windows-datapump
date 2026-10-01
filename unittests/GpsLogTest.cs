@@ -302,5 +302,81 @@ namespace general_tests
             // Verify PostObservations was called at least once before the circuit breaker opened
             Assert.True(postObservationsCallCount >= 1, "PostObservations should have been called at least once");
         }
+
+        /// <summary>
+        /// Behaves like the real readers: yields rows with id above its
+        /// cursor and advances the cursor before each yield.
+        /// </summary>
+        private class CursorAdvancingReader : IDataReader
+        {
+            private readonly List<SmartDispatchPlusV1Record> _rows;
+            private long _cursor;
+            public List<DateTime> LowerDates { get; } = new();
+
+            public CursorAdvancingReader(List<SmartDispatchPlusV1Record> rows) => _rows = rows;
+
+            public long GetCursor() => _cursor;
+            public void RestoreCursor(long cursor) => _cursor = cursor;
+            public TestResult TestConnection() => new TestResult(true, "ok");
+            public void Dispose() { }
+
+            public async IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date)
+            {
+                LowerDates.Add(lower_date);
+                foreach (var row in _rows.Where(r => r.id > _cursor).ToList())
+                {
+                    _cursor = row.id;
+                    yield return row;
+                }
+                await Task.CompletedTask;
+            }
+        }
+
+        [Fact]
+        public async Task TestPostTimeoutRetriesSameBatch()
+        {
+            var rows = new[] { (1, date_1), (2, date_2), (3, date_3) }
+                .Select(r => new SmartDispatchPlusV1Record
+                {
+                    id = r.Item1,
+                    recvgpstime = r.Item2,
+                    happentime = r.Item2,
+                    device_alias = "test",
+                    deviceguid = "test",
+                    gpscontext = "test",
+                    streetname = "test",
+                    description = "test"
+                })
+                .ToList();
+            var reader = new CursorAdvancingReader(rows);
+
+            var postedIds = new List<List<long>>();
+            var writer_mocker = new Mock<IDataWriter>();
+            writer_mocker.Setup(f => f.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()))
+                .Returns<IReadOnlyList<ISourceRecord>, CancellationToken>((records, ct) =>
+                {
+                    postedIds.Add(records.Cast<SmartDispatchPlusV1Record>().Select(r => (long)r.id).ToList());
+                    if (postedIds.Count == 1)
+                        throw new PostTimeoutException("timed out");
+                    return Task.FromResult(0);
+                });
+
+            // 100ms interval keeps the retry backoff short.
+            RadioDataPump pump = new RadioDataPump(100, 25);
+
+            CancellationTokenSource tokenSource = new CancellationTokenSource();
+            tokenSource.CancelAfter(1500);
+
+            await pump.Run(reader, writer_mocker.Object, tokenSource.Token);
+
+            // The timed-out batch is re-sent in full, exactly once more.
+            Assert.Equal(2, postedIds.Count);
+            Assert.Equal(new long[] { 1, 2, 3 }, postedIds[0]);
+            Assert.Equal(new long[] { 1, 2, 3 }, postedIds[1]);
+
+            // The retry read used the same lower_date as the failed one.
+            Assert.True(reader.LowerDates.Count >= 2);
+            Assert.Equal(reader.LowerDates[0], reader.LowerDates[1]);
+        }
     }
 }

@@ -31,7 +31,14 @@ namespace DataPump
         {
             var lower_date = DateTime.UtcNow.AddMinutes(-2880);
             int consecutiveDbErrors = 0;
+            int consecutivePostTimeouts = 0;
             var batch = new List<ISourceRecord>(_batchSize);
+
+            // The reader's cursor as of the last batch the pump finished
+            // with (posted or deliberately skipped). The reader advances its
+            // own cursor as it yields records, so a batch that has to be
+            // retried needs the cursor put back here first.
+            long readerCursor = reader.GetCursor();
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -48,6 +55,8 @@ namespace DataPump
                         if (batch.Count >= _batchSize)
                         {
                             lower_date = await FlushBatch(batch, writer, lower_date, cancellationToken);
+                            readerCursor = reader.GetCursor();
+                            consecutivePostTimeouts = 0;
                         }
                     }
 
@@ -55,6 +64,8 @@ namespace DataPump
                     if (batch.Count > 0)
                     {
                         lower_date = await FlushBatch(batch, writer, lower_date, cancellationToken);
+                        readerCursor = reader.GetCursor();
+                        consecutivePostTimeouts = 0;
                     }
 
                     // Reset error counter on successful read cycle
@@ -83,6 +94,21 @@ namespace DataPump
                 {
                     // Cancellation requested - let it propagate
                     throw;
+                }
+                catch (PostTimeoutException ex)
+                {
+                    // The batch never made it. lower_date wasn't advanced;
+                    // put the reader's cursor back too, then re-read and
+                    // re-send the same records. No retry limit: giving up
+                    // would mean dropping data, and the dashboard shows the
+                    // error while this goes on.
+                    reader.RestoreCursor(readerCursor);
+                    consecutivePostTimeouts++;
+                    int delayMs = CalculatePostRetryDelay(consecutivePostTimeouts);
+
+                    logger.Warn($"Post timed out (attempt {consecutivePostTimeouts}): {ex.Message} Retrying the same batch in {delayMs / 1000.0:0.#}s...");
+
+                    await Task.Delay(delayMs, cancellationToken);
                 }
                 catch (Exception ex) when (IsTransientDatabaseError(ex))
                 {
@@ -121,6 +147,11 @@ namespace DataPump
             catch (OperationCanceledException)
             {
                 // Service shutdown - propagate
+                throw;
+            }
+            catch (PostTimeoutException)
+            {
+                // Don't advance the cursor; Pump re-reads and retries this batch.
                 throw;
             }
             catch (BrokenCircuitException)
@@ -181,6 +212,14 @@ namespace DataPump
             // Exponential backoff: 5s, 10s, 20s, 40s, 80s (capped)
             int delay = BaseRetryDelayMs * (int)Math.Pow(2, attemptNumber - 1);
             return Math.Min(delay, 80000); // Cap at 80 seconds
+        }
+
+        private int CalculatePostRetryDelay(int attemptNumber)
+        {
+            // Exponential backoff from the poll interval: with the default
+            // 5s interval that's 5s, 10s, 20s, 40s, then 80s (capped).
+            long delay = (long)_intervalMs << Math.Min(attemptNumber - 1, 16);
+            return (int)Math.Min(delay, 80000);
         }
     }
 }

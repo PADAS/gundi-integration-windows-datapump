@@ -58,6 +58,10 @@ public class KAS20DataReader : IDataReader
         logger.Info($"Created KAS20DataReader. host: {database_server}, db: {database_name}, user: {database_user}");
     }
 
+    public long GetCursor() => _state.latest_gps_index;
+
+    public void RestoreCursor(long cursor) => _state.latest_gps_index = cursor;
+
     public void Dispose()
     {
         if (!_disposed)
@@ -203,6 +207,10 @@ public class TrbonetPlusDataReader : IDataReader
         _state = _stateHandler.LoadState();
         logger.Info($"Created TrbonetPlusDataReader. host: {database_server}, db: {database_name}, user: {database_user}");
     }
+
+    public long GetCursor() => _state.latest_gps_index;
+
+    public void RestoreCursor(long cursor) => _state.latest_gps_index = cursor;
 
     public void Dispose()
     {
@@ -350,6 +358,10 @@ public class SmartDispatchPlusV1Reader : IDataReader
         _state = _stateHandler.LoadState();
         logger.Info($"Created {GetType().Name}. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}");
     }
+
+    public long GetCursor() => _state.latest_gps_index;
+
+    public void RestoreCursor(long cursor) => _state.latest_gps_index = cursor;
 
     public void Dispose()
     {
@@ -523,6 +535,11 @@ public class SmartOneDispatchReader : IDataReader
         logger.Info($"Created SmartOneDispatchReader. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}");
     }
 
+    // Cursor is receive_datetime ticks, not a row id (see ReadNew).
+    public long GetCursor() => _state.latest_gps_index;
+
+    public void RestoreCursor(long cursor) => _state.latest_gps_index = cursor;
+
     public void Dispose()
     {
         if (!_disposed)
@@ -694,7 +711,28 @@ public class GroupedDataWriter : IDataWriter
     public async Task<int> PostObservations(IReadOnlyList<ISourceRecord> records, CancellationToken cancellation = default)
     {
         var tasks = writers.Select(writer => writer.PostObservations(records, cancellation)).ToArray();
-        await Task.WhenAll(tasks);
+        try
+        {
+            await Task.WhenAll(tasks);
+        }
+        catch when (!cancellation.IsCancellationRequested)
+        {
+            // Task.WhenAll only surfaces the first fault. If any destination
+            // timed out, surface that one so the pump retries the batch
+            // rather than skipping it. Destinations that already accepted
+            // the batch receive it again; that beats dropping it for the
+            // one that didn't.
+            var timeout = tasks
+                .Where(t => t.IsFaulted)
+                .SelectMany(t => t.Exception!.InnerExceptions)
+                .OfType<PostTimeoutException>()
+                .FirstOrDefault();
+            if (timeout != null)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(timeout).Throw();
+            }
+            throw;
+        }
         return 0;
     }
 
@@ -943,9 +981,14 @@ public class GundiV2DataWriter : IDataWriter
 
             return 0;
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException e) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.Warn($"PostObservations batch timed out. Will retry on next poll cycle.");
+            // Timeout, not shutdown. Throw so the pump re-reads and re-sends
+            // this batch; returning normally would let it advance the cursor
+            // past records that never arrived.
+            logger.Warn($"PostObservations batch of {payload.Count} timed out after {_httpTimeout.TotalSeconds}s.");
+            throw new PostTimeoutException(
+                $"Posting {payload.Count} observations to {_destination} timed out after {_httpTimeout.TotalSeconds}s.", e);
         }
         catch (OperationCanceledException)
         {
