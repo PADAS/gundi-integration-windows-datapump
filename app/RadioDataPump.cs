@@ -31,12 +31,23 @@ namespace DataPump
         {
             var lower_date = DateTime.UtcNow.AddMinutes(-2880);
             int consecutiveDbErrors = 0;
+            int consecutivePostTimeouts = 0;
             var batch = new List<ISourceRecord>(_batchSize);
 
             while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
+                    // A batch whose post timed out stays in `batch`. Send it
+                    // before reading anything new: the reader has already
+                    // moved its cursor past those records, so re-reading
+                    // can't be relied on to return them.
+                    if (batch.Count > 0)
+                    {
+                        lower_date = await FlushBatch(batch, writer, lower_date, cancellationToken);
+                        consecutivePostTimeouts = 0;
+                    }
+
                     await foreach (var item in reader.ReadNew(lower_date))
                     {
                         // Check for cancellation between records
@@ -48,6 +59,7 @@ namespace DataPump
                         if (batch.Count >= _batchSize)
                         {
                             lower_date = await FlushBatch(batch, writer, lower_date, cancellationToken);
+                            consecutivePostTimeouts = 0;
                         }
                     }
 
@@ -55,6 +67,7 @@ namespace DataPump
                     if (batch.Count > 0)
                     {
                         lower_date = await FlushBatch(batch, writer, lower_date, cancellationToken);
+                        consecutivePostTimeouts = 0;
                     }
 
                     // Reset error counter on successful read cycle
@@ -84,6 +97,20 @@ namespace DataPump
                     // Cancellation requested - let it propagate
                     throw;
                 }
+                catch (PostTimeoutException ex)
+                {
+                    // The batch never made it. It's still in `batch` and
+                    // lower_date wasn't advanced; back off, then the top of
+                    // the loop posts it again. No retry limit: giving up
+                    // would mean dropping data, and the dashboard shows the
+                    // error while this goes on.
+                    consecutivePostTimeouts++;
+                    int delayMs = CalculatePostRetryDelay(consecutivePostTimeouts);
+
+                    logger.Warn($"Post timed out (attempt {consecutivePostTimeouts}): {ex.Message} Retrying the same batch in {delayMs / 1000.0:0.#}s...");
+
+                    await Task.Delay(delayMs, cancellationToken);
+                }
                 catch (Exception ex) when (IsTransientDatabaseError(ex))
                 {
                     consecutiveDbErrors++;
@@ -105,6 +132,8 @@ namespace DataPump
 
         /// <summary>
         /// Flushes the batch to the writer and returns the updated cursor value.
+        /// Clears the batch unless the post timed out; then the records stay
+        /// in it so the caller can post them again.
         /// </summary>
         private async Task<DateTime> FlushBatch(List<ISourceRecord> batch, IDataWriter writer,
             DateTime lower_date, CancellationToken cancellationToken)
@@ -116,6 +145,7 @@ namespace DataPump
 
                 // Only advance cursor after successful batch post
                 var maxCursor = batch.Max(r => r.cursor_at);
+                batch.Clear();
                 return maxCursor > lower_date ? maxCursor : lower_date;
             }
             catch (OperationCanceledException)
@@ -123,11 +153,17 @@ namespace DataPump
                 // Service shutdown - propagate
                 throw;
             }
+            catch (PostTimeoutException)
+            {
+                // Keep the batch and don't advance the cursor; Pump posts it again.
+                throw;
+            }
             catch (BrokenCircuitException)
             {
                 // Circuit breaker is open - API is unhealthy
                 // Don't advance cursor, pause processing, and retry from this point
                 logger.Warn($"Circuit breaker open - pausing processing for {CircuitBreakerPauseTime.TotalSeconds}s before retrying...");
+                batch.Clear();
                 await Task.Delay(CircuitBreakerPauseTime, cancellationToken);
                 throw; // Re-throw to break out of foreach
             }
@@ -137,11 +173,8 @@ namespace DataPump
                 logger.Warn($"Failed to post batch of {batch.Count} records: {ex.Message}");
                 // Advance cursor to skip this problematic batch
                 var maxCursor = batch.Max(r => r.cursor_at);
-                return maxCursor > lower_date ? maxCursor : lower_date;
-            }
-            finally
-            {
                 batch.Clear();
+                return maxCursor > lower_date ? maxCursor : lower_date;
             }
         }
 
@@ -181,6 +214,14 @@ namespace DataPump
             // Exponential backoff: 5s, 10s, 20s, 40s, 80s (capped)
             int delay = BaseRetryDelayMs * (int)Math.Pow(2, attemptNumber - 1);
             return Math.Min(delay, 80000); // Cap at 80 seconds
+        }
+
+        private int CalculatePostRetryDelay(int attemptNumber)
+        {
+            // Exponential backoff from the poll interval: with the default
+            // 5s interval that's 5s, 10s, 20s, 40s, then 80s (capped).
+            long delay = (long)_intervalMs << Math.Min(attemptNumber - 1, 16);
+            return (int)Math.Min(delay, 80000);
         }
     }
 }

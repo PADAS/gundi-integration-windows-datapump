@@ -37,6 +37,19 @@ public interface IDataWriter
     }
 }
 
+/// <summary>
+/// Thrown by a writer when a post timed out (not a shutdown). The
+/// destination may simply be slow, so the pump re-reads and re-sends the
+/// same records instead of skipping them.
+/// </summary>
+public class PostTimeoutException : Exception
+{
+    public PostTimeoutException(string message, Exception? innerException = null)
+        : base(message, innerException)
+    {
+    }
+}
+
 public class GundiConnection
 {
     public string ConnectionName { get; set; }
