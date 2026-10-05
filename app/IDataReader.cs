@@ -15,16 +15,6 @@ public interface IDataReader : IDisposable
 {
     IAsyncEnumerable<ISourceRecord> ReadNew(DateTime lower_date);
 
-    /// <summary>
-    /// The reader's resume position. Readers advance it as they yield
-    /// records, before the pump has posted them. The pump snapshots it
-    /// after each batch is handled, and restores the snapshot when a
-    /// batch needs to be re-read (e.g. its post timed out).
-    /// </summary>
-    long GetCursor();
-
-    void RestoreCursor(long cursor);
-
     TestResult TestConnection();
 
     public List<GroupAlias> GetGroupAliases()

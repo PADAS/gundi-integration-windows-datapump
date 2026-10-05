@@ -305,7 +305,8 @@ namespace general_tests
 
         /// <summary>
         /// Behaves like the real readers: yields rows with id above its
-        /// cursor and advances the cursor before each yield.
+        /// cursor and advances the cursor before each yield, so a row it
+        /// has handed out is never returned by a later read.
         /// </summary>
         private class CursorAdvancingReader : IDataReader
         {
@@ -315,8 +316,6 @@ namespace general_tests
 
             public CursorAdvancingReader(List<SmartDispatchPlusV1Record> rows) => _rows = rows;
 
-            public long GetCursor() => _cursor;
-            public void RestoreCursor(long cursor) => _cursor = cursor;
             public TestResult TestConnection() => new TestResult(true, "ok");
             public void Dispose() { }
 
@@ -335,7 +334,11 @@ namespace general_tests
         [Fact]
         public async Task TestPostTimeoutRetriesSameBatch()
         {
-            var rows = new[] { (1, date_1), (2, date_2), (3, date_3) }
+            // Recent timestamps, so they're newer than the pump's starting
+            // lower_date (now minus 2 days) and actually move it.
+            var now = DateTime.SpecifyKind(DateTime.UtcNow.AddMinutes(-30), DateTimeKind.Utc);
+            var latest = now.AddMinutes(2);
+            var rows = new[] { (1, now), (2, now.AddMinutes(1)), (3, latest) }
                 .Select(r => new SmartDispatchPlusV1Record
                 {
                     id = r.Item1,
@@ -369,14 +372,16 @@ namespace general_tests
 
             await pump.Run(reader, writer_mocker.Object, tokenSource.Token);
 
-            // The timed-out batch is re-sent in full, exactly once more.
+            // The timed-out batch is re-sent in full, exactly once more,
+            // even though the reader won't return those rows again.
             Assert.Equal(2, postedIds.Count);
             Assert.Equal(new long[] { 1, 2, 3 }, postedIds[0]);
             Assert.Equal(new long[] { 1, 2, 3 }, postedIds[1]);
 
-            // The retry read used the same lower_date as the failed one.
+            // lower_date only moved once the retry succeeded.
             Assert.True(reader.LowerDates.Count >= 2);
-            Assert.Equal(reader.LowerDates[0], reader.LowerDates[1]);
+            Assert.True(reader.LowerDates[0] < now);
+            Assert.Equal(latest, reader.LowerDates[1]);
         }
     }
 }

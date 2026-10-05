@@ -58,10 +58,6 @@ public class KAS20DataReader : IDataReader
         logger.Info($"Created KAS20DataReader. host: {database_server}, db: {database_name}, user: {database_user}");
     }
 
-    public long GetCursor() => _state.latest_gps_index;
-
-    public void RestoreCursor(long cursor) => _state.latest_gps_index = cursor;
-
     public void Dispose()
     {
         if (!_disposed)
@@ -207,10 +203,6 @@ public class TrbonetPlusDataReader : IDataReader
         _state = _stateHandler.LoadState();
         logger.Info($"Created TrbonetPlusDataReader. host: {database_server}, db: {database_name}, user: {database_user}");
     }
-
-    public long GetCursor() => _state.latest_gps_index;
-
-    public void RestoreCursor(long cursor) => _state.latest_gps_index = cursor;
 
     public void Dispose()
     {
@@ -358,10 +350,6 @@ public class SmartDispatchPlusV1Reader : IDataReader
         _state = _stateHandler.LoadState();
         logger.Info($"Created {GetType().Name}. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}");
     }
-
-    public long GetCursor() => _state.latest_gps_index;
-
-    public void RestoreCursor(long cursor) => _state.latest_gps_index = cursor;
 
     public void Dispose()
     {
@@ -534,11 +522,6 @@ public class SmartOneDispatchReader : IDataReader
         _state = _stateHandler.LoadState();
         logger.Info($"Created SmartOneDispatchReader. host: {database_server}, db: {database_name}, user: {database_user}, schema: {database_schema}");
     }
-
-    // Cursor is receive_datetime ticks, not a row id (see ReadNew).
-    public long GetCursor() => _state.latest_gps_index;
-
-    public void RestoreCursor(long cursor) => _state.latest_gps_index = cursor;
 
     public void Dispose()
     {
@@ -968,13 +951,20 @@ public class GundiV2DataWriter : IDataWriter
         {
             logger.Info($"Posting batch of {payload.Count} observations");
 
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            linkedCts.CancelAfter(_httpTimeout);
-
+            // The timeout applies to each HTTP attempt, not to the whole
+            // policy. Polly's backoffs alone add up to 62s, so a policy-wide
+            // 30s timeout would cancel persistent 5xx/429 retries partway
+            // through and make them look like timeouts. Here a 5xx run
+            // finishes its retries and fails as an HTTP error, and the
+            // circuit breaker sees the real outcome. A timed-out attempt
+            // throws OperationCanceledException, which the retry policy
+            // doesn't handle, so it surfaces right away.
             var response = await _resiliencePolicy.ExecuteAsync(async (ct) =>
             {
-                return await _httpClient.PostAsJsonAsync($"{_destination}/v2/observations/", payload, ct);
-            }, linkedCts.Token).ConfigureAwait(false);
+                using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                attemptCts.CancelAfter(_httpTimeout);
+                return await _httpClient.PostAsJsonAsync($"{_destination}/v2/observations/", payload, attemptCts.Token);
+            }, cancellationToken).ConfigureAwait(false);
 
             await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
@@ -983,9 +973,9 @@ public class GundiV2DataWriter : IDataWriter
         }
         catch (OperationCanceledException e) when (!cancellationToken.IsCancellationRequested)
         {
-            // Timeout, not shutdown. Throw so the pump re-reads and re-sends
-            // this batch; returning normally would let it advance the cursor
-            // past records that never arrived.
+            // An HTTP attempt timed out (not shutdown). Throw so the pump
+            // posts this batch again; returning normally would let it
+            // advance past records that never arrived.
             logger.Warn($"PostObservations batch of {payload.Count} timed out after {_httpTimeout.TotalSeconds}s.");
             throw new PostTimeoutException(
                 $"Posting {payload.Count} observations to {_destination} timed out after {_httpTimeout.TotalSeconds}s.", e);
