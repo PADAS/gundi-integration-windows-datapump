@@ -694,7 +694,28 @@ public class GroupedDataWriter : IDataWriter
     public async Task<int> PostObservations(IReadOnlyList<ISourceRecord> records, CancellationToken cancellation = default)
     {
         var tasks = writers.Select(writer => writer.PostObservations(records, cancellation)).ToArray();
-        await Task.WhenAll(tasks);
+        try
+        {
+            await Task.WhenAll(tasks);
+        }
+        catch when (!cancellation.IsCancellationRequested)
+        {
+            // Task.WhenAll only surfaces the first fault. If any destination
+            // timed out, surface that one so the pump retries the batch
+            // rather than skipping it. Destinations that already accepted
+            // the batch receive it again; that beats dropping it for the
+            // one that didn't.
+            var timeout = tasks
+                .Where(t => t.IsFaulted)
+                .SelectMany(t => t.Exception!.InnerExceptions)
+                .OfType<PostTimeoutException>()
+                .FirstOrDefault();
+            if (timeout != null)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(timeout).Throw();
+            }
+            throw;
+        }
         return 0;
     }
 
@@ -930,22 +951,34 @@ public class GundiV2DataWriter : IDataWriter
         {
             logger.Info($"Posting batch of {payload.Count} observations");
 
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            linkedCts.CancelAfter(_httpTimeout);
-
+            // The timeout applies to each HTTP attempt, not to the whole
+            // policy. Polly's backoffs alone add up to 62s, so a policy-wide
+            // 30s timeout would cancel persistent 5xx/429 retries partway
+            // through and make them look like timeouts. Here a 5xx run
+            // finishes its retries and fails as an HTTP error, and the
+            // circuit breaker sees the real outcome. A timed-out attempt
+            // throws OperationCanceledException, which the retry policy
+            // doesn't handle, so it surfaces right away.
             var response = await _resiliencePolicy.ExecuteAsync(async (ct) =>
             {
-                return await _httpClient.PostAsJsonAsync($"{_destination}/v2/observations/", payload, ct);
-            }, linkedCts.Token).ConfigureAwait(false);
+                using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                attemptCts.CancelAfter(_httpTimeout);
+                return await _httpClient.PostAsJsonAsync($"{_destination}/v2/observations/", payload, attemptCts.Token);
+            }, cancellationToken).ConfigureAwait(false);
 
             await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
             return 0;
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException e) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.Warn($"PostObservations batch timed out. Will retry on next poll cycle.");
+            // An HTTP attempt timed out (not shutdown). Throw so the pump
+            // posts this batch again; returning normally would let it
+            // advance past records that never arrived.
+            logger.Warn($"PostObservations batch of {payload.Count} timed out after {_httpTimeout.TotalSeconds}s.");
+            throw new PostTimeoutException(
+                $"Posting {payload.Count} observations to {_destination} timed out after {_httpTimeout.TotalSeconds}s.", e);
         }
         catch (OperationCanceledException)
         {
