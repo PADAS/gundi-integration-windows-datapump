@@ -1,0 +1,102 @@
+using DataPump;
+using DataPumpModels;
+using Moq;
+
+namespace general_tests
+{
+    public class ObservationDeduplicatorTest
+    {
+        private static readonly DateTime T0 = new DateTime(2026, 11, 1, 12, 0, 0, DateTimeKind.Local);
+
+        private static SmartDispatchPlusV1Record Row(long id, int deviceId, DateTime happentime) => new()
+        {
+            id = id,
+            deviceid = deviceId,
+            happentime = happentime,
+            recvgpstime = happentime,
+            device_alias = "unit",
+            deviceguid = "guid",
+            gpscontext = "",
+            streetname = "",
+            description = "",
+        };
+
+        [Fact]
+        public void SameSourceAndTime_DifferentRowId_IsDuplicate()
+        {
+            var d = new ObservationDeduplicator();
+            Assert.True(d.TryAdd(Row(1, 7, T0)));
+            Assert.False(d.TryAdd(Row(2, 7, T0)));
+            Assert.Equal(1, d.Count);
+        }
+
+        [Fact]
+        public void DifferentSourceOrTime_IsNotDuplicate()
+        {
+            var d = new ObservationDeduplicator();
+            Assert.True(d.TryAdd(Row(1, 7, T0)));
+            Assert.True(d.TryAdd(Row(2, 8, T0)));
+            Assert.True(d.TryAdd(Row(3, 7, T0.AddSeconds(1))));
+            Assert.Equal(3, d.Count);
+        }
+
+        [Fact]
+        public void KeyOlderThanWindow_IsForgotten()
+        {
+            var d = new ObservationDeduplicator(TimeSpan.FromHours(1));
+            Assert.True(d.TryAdd(Row(1, 7, T0)));
+
+            // A record 2h later pushes the window past T0.
+            Assert.True(d.TryAdd(Row(2, 7, T0.AddHours(2))));
+            Assert.Equal(1, d.Count);
+
+            // The T0 key is gone, so the same key is accepted again.
+            Assert.True(d.TryAdd(Row(3, 7, T0)));
+        }
+
+        [Fact]
+        public void KeyInsideWindow_IsStillRemembered()
+        {
+            var d = new ObservationDeduplicator(TimeSpan.FromHours(1));
+            Assert.True(d.TryAdd(Row(1, 7, T0)));
+            Assert.True(d.TryAdd(Row(2, 7, T0.AddMinutes(30))));
+            Assert.False(d.TryAdd(Row(3, 7, T0)));
+        }
+
+        [Fact]
+        public async Task Pump_DropsDuplicateBeforePosting()
+        {
+            var now = DateTime.SpecifyKind(DateTime.UtcNow.AddMinutes(-30), DateTimeKind.Utc);
+            async IAsyncEnumerable<ISourceRecord> Rows()
+            {
+                yield return Row(1, 7, now);
+                yield return Row(2, 7, now);                 // duplicate of row 1
+                yield return Row(3, 7, now.AddMinutes(1));
+                yield return Row(4, 9, now);                 // other device, same time
+                await Task.CompletedTask;
+            }
+            async IAsyncEnumerable<ISourceRecord> Empty()
+            {
+                await Task.CompletedTask;
+                yield break;
+            }
+
+            var reader = new Mock<IDataReader>();
+            reader.SetupSequence(r => r.ReadNew(It.IsAny<DateTime>()))
+                .Returns(Rows()).Returns(Empty()).Returns(Empty()).Returns(Empty()).Returns(Empty());
+
+            var postedIds = new List<long>();
+            var writer = new Mock<IDataWriter>();
+            writer.Setup(w => w.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()))
+                .Callback<IReadOnlyList<ISourceRecord>, CancellationToken>((records, _) =>
+                    postedIds.AddRange(records.Cast<SmartDispatchPlusV1Record>().Select(r => r.id)))
+                .Returns(Task.FromResult(0));
+
+            var pump = new RadioDataPump(200, 25);
+            var cts = new CancellationTokenSource(700);
+            await pump.Run(reader.Object, writer.Object, cts.Token);
+
+            Assert.Equal(new long[] { 1, 3, 4 }, postedIds);
+        }
+    }
+}
