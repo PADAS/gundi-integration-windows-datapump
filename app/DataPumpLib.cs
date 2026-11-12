@@ -798,7 +798,7 @@ public class GundiV2DataWriter : IDataWriter
         // Use shared handler to avoid socket exhaustion and handle DNS changes
         this._httpClient = new HttpClient(SharedHandler, disposeHandler: false);
         this._rateLimiter = new SemaphoreSlim(maxConcurrency); // Limit concurrent requests
-        this._destination = destination;
+        this._destination = NormalizeDestination(destination);
         this._apikey = apikey;
         this._httpClient.DefaultRequestHeaders.Add("apikey", this._apikey);
         this._httpClient.DefaultRequestHeaders.Add("User-Agent", VersionInfo.UserAgent);
@@ -813,6 +813,31 @@ public class GundiV2DataWriter : IDataWriter
     public void AddMatchingGroup(string group)
     {
         matchingGroups.Add(group);
+    }
+
+    /// <summary>
+    /// The path this writer appends to the destination for every request.
+    /// </summary>
+    public const string ObservationsPath = "/v2/observations/";
+
+    /// <summary>
+    /// Reduces a user-entered destination to the server base URL. The
+    /// writer appends <see cref="ObservationsPath"/> itself, so a value
+    /// like "https://host/v2/observations/" (the natural thing to paste
+    /// from API docs) would otherwise produce ".../v2/observations//v2/observations/"
+    /// and a 404 on every request. Trims whitespace, a trailing
+    /// "/v2/observations" (any case, with or without the final slash),
+    /// and any trailing slashes.
+    /// </summary>
+    public static string NormalizeDestination(string? destination)
+    {
+        var d = (destination ?? "").Trim().TrimEnd('/');
+        var suffix = ObservationsPath.TrimEnd('/');
+        if (d.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+        {
+            d = d[..^suffix.Length].TrimEnd('/');
+        }
+        return d;
     }
 
     /// <summary>
@@ -837,7 +862,7 @@ public class GundiV2DataWriter : IDataWriter
         try
         {
             using var resp = await client.PostAsJsonAsync(
-                $"{_destination}/v2/observations/",
+                $"{_destination}{ObservationsPath}",
                 Array.Empty<object>(),
                 cancellation);
 
@@ -855,7 +880,15 @@ public class GundiV2DataWriter : IDataWriter
             if (code == 400)
                 return new TestResult(true, "API key accepted. (Server rejected the empty probe payload, which is expected.)");
 
-            // Other non-2xx (404, 5xx, ...) — uncertain. Surface the body
+            // 404 almost always means the URL is wrong, not the key. The
+            // body is an HTML error page, which isn't useful to show.
+            if (code == 404)
+                return new TestResult(false,
+                    $"Not found (HTTP 404) at {_destination}{ObservationsPath}. " +
+                    "The URL should be the server address only, for example " +
+                    "https://sensors.api.gundiservice.org");
+
+            // Other non-2xx (5xx, ...) — uncertain. Surface the body
             // so the operator has something to act on.
             var body = await resp.Content.ReadAsStringAsync(cancellation);
             var snippet = body.Length > 200 ? body[..200] + "…" : body;
@@ -897,7 +930,7 @@ public class GundiV2DataWriter : IDataWriter
             // BrokenCircuitException will propagate if circuit is open
             var response = await _resiliencePolicy.ExecuteAsync(async (ct) =>
             {
-                return await _httpClient.PostAsJsonAsync($"{this._destination}/v2/observations/", payload, ct);
+                return await _httpClient.PostAsJsonAsync($"{this._destination}{ObservationsPath}", payload, ct);
             }, linkedCts.Token).ConfigureAwait(false);
 
             await response.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -963,7 +996,7 @@ public class GundiV2DataWriter : IDataWriter
             {
                 using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 attemptCts.CancelAfter(_httpTimeout);
-                return await _httpClient.PostAsJsonAsync($"{_destination}/v2/observations/", payload, attemptCts.Token);
+                return await _httpClient.PostAsJsonAsync($"{_destination}{ObservationsPath}", payload, attemptCts.Token);
             }, cancellationToken).ConfigureAwait(false);
 
             await response.Content.ReadAsStringAsync().ConfigureAwait(false);
