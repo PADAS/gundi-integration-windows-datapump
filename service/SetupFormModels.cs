@@ -103,7 +103,9 @@ public class DestinationFormModel
     public GundiConnection ToConnection() => new()
     {
         ConnectionName = ConnectionName ?? "",
-        Destination = Destination ?? "",
+        // Save the base URL, so the stored config matches what the writer
+        // actually uses and the field shows the cleaned value on reload.
+        Destination = GundiV2DataWriter.NormalizeDestination(Destination),
         ApiKey = string.IsNullOrEmpty(NewApiKey) ? (ExistingApiKey ?? "") : NewApiKey,
         SendEverything = SendEverything,
         GroupAliases = GroupAliases.Select(a => a.ToGroupAlias()).ToList(),

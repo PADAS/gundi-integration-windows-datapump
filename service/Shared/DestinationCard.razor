@@ -37,7 +37,8 @@
 
     <div class="field">
         <label>URL</label>
-        <InputText @bind-Value="Dest.Destination" class="input" placeholder="https://..." />
+        <InputText @bind-Value="Dest.Destination" class="input" placeholder="https://sensors.api.gundiservice.org" />
+        <small class="hint">Server address only. The service adds <code>/v2/observations/</code> itself.</small>
     </div>
 
     <div class="field">
