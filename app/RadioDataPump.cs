@@ -65,7 +65,25 @@ namespace DataPump
                         // post, which is what we want: a batch retried from
                         // memory after a timeout is re-sent as-is, and a
                         // batch that is skipped on error stays skipped.
-                        if (!_dedup.TryAdd(item))
+                        bool isNew;
+                        try
+                        {
+                            isNew = _dedup.TryAdd(item);
+                        }
+                        catch (Exception ex)
+                        {
+                            // The key comes from ToGundiV2Observation, which
+                            // throws on a record it can't represent (e.g. an
+                            // OverflowException casting a 1e30 or NaN
+                            // coordinate to decimal). The writer runs the same
+                            // conversion, so this record could never be sent;
+                            // in a batch it would only make the whole batch
+                            // fail. Skip just this record and keep pumping.
+                            logger.Warn($"Skipping a record that can't be converted to an observation (cursor_at {item.cursor_at:o}): {ex.GetType().Name}: {ex.Message}");
+                            continue;
+                        }
+
+                        if (!isNew)
                         {
                             duplicatesThisCycle++;
                             continue;

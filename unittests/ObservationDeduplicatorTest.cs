@@ -145,5 +145,51 @@ namespace general_tests
 
             Assert.Equal(new long[] { 1, 3, 4 }, postedIds);
         }
+
+        [Fact]
+        public async Task Pump_SkipsUnconvertibleRecordAndKeepsPumping()
+        {
+            // (decimal)1e30 and (decimal)NaN throw OverflowException in
+            // ToGundiV2Observation. The pump must skip just those rows and
+            // still post the valid rows around them.
+            var now = DateTime.SpecifyKind(DateTime.UtcNow.AddMinutes(-30), DateTimeKind.Utc);
+            var tooBig = Row(2, 7, now.AddSeconds(1));
+            tooBig.latitude = 1e30;
+            var notANumber = Row(3, 7, now.AddSeconds(2));
+            notANumber.longitude = double.NaN;
+
+            async IAsyncEnumerable<ISourceRecord> Rows()
+            {
+                yield return Row(1, 7, now);
+                yield return tooBig;
+                yield return notANumber;
+                yield return Row(4, 7, now.AddSeconds(3));
+                await Task.CompletedTask;
+            }
+            async IAsyncEnumerable<ISourceRecord> Empty()
+            {
+                await Task.CompletedTask;
+                yield break;
+            }
+
+            var reader = new Mock<IDataReader>();
+            reader.SetupSequence(r => r.ReadNew(It.IsAny<DateTime>()))
+                .Returns(Rows()).Returns(Empty()).Returns(Empty()).Returns(Empty()).Returns(Empty());
+
+            var postedIds = new List<long>();
+            var writer = new Mock<IDataWriter>();
+            writer.Setup(w => w.PostObservations(It.IsAny<IReadOnlyList<ISourceRecord>>(), It.IsAny<CancellationToken>()))
+                .Callback<IReadOnlyList<ISourceRecord>, CancellationToken>((records, _) =>
+                    postedIds.AddRange(records.Cast<SmartDispatchPlusV1Record>().Select(r => r.id)))
+                .Returns(Task.FromResult(0));
+
+            var pump = new RadioDataPump(200, 25);
+            var cts = new CancellationTokenSource(700);
+
+            // Completes normally: the bad rows don't escape the pump.
+            await pump.Run(reader.Object, writer.Object, cts.Token);
+
+            Assert.Equal(new long[] { 1, 4 }, postedIds);
+        }
     }
 }
