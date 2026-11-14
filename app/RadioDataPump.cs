@@ -13,12 +13,14 @@ namespace DataPump
 
         private readonly int _intervalMs;
         private readonly int _batchSize;
+        private readonly ObservationDeduplicator _dedup;
 
         private static Logger logger = LogManager.GetCurrentClassLogger();
-        public RadioDataPump(int intervalMs = 5000, int batchSize = 25)
+        public RadioDataPump(int intervalMs = 5000, int batchSize = 25, TimeSpan? dedupWindow = null)
         {
             _intervalMs = intervalMs;
             _batchSize = batchSize;
+            _dedup = new ObservationDeduplicator(dedupWindow);
         }
 
         public async Task<int> Run(IDataReader reader, IDataWriter writer, CancellationToken cancellationToken)
@@ -48,12 +50,45 @@ namespace DataPump
                         consecutivePostTimeouts = 0;
                     }
 
+                    int duplicatesThisCycle = 0;
                     await foreach (var item in reader.ReadNew(lower_date))
                     {
                         // Check for cancellation between records
                         cancellationToken.ThrowIfCancellationRequested();
 
                         logger.Debug("item: " + JsonSerializer.Serialize(item));
+
+                        // Some consoles write the same position twice as
+                        // distinct rows. Downstream keys observations on
+                        // (source, recorded_at), so the second row would be
+                        // a duplicate there. Keys are recorded before the
+                        // post, which is what we want: a batch retried from
+                        // memory after a timeout is re-sent as-is, and a
+                        // batch that is skipped on error stays skipped.
+                        bool isNew;
+                        try
+                        {
+                            isNew = _dedup.TryAdd(item);
+                        }
+                        catch (Exception ex)
+                        {
+                            // The key comes from ToGundiV2Observation, which
+                            // throws on a record it can't represent (e.g. an
+                            // OverflowException casting a 1e30 or NaN
+                            // coordinate to decimal). The writer runs the same
+                            // conversion, so this record could never be sent;
+                            // in a batch it would only make the whole batch
+                            // fail. Skip just this record and keep pumping.
+                            logger.Warn($"Skipping a record that can't be converted to an observation (cursor_at {item.cursor_at:o}): {ex.GetType().Name}: {ex.Message}");
+                            continue;
+                        }
+
+                        if (!isNew)
+                        {
+                            duplicatesThisCycle++;
+                            continue;
+                        }
+
                         batch.Add(item);
 
                         if (batch.Count >= _batchSize)
@@ -68,6 +103,11 @@ namespace DataPump
                     {
                         lower_date = await FlushBatch(batch, writer, lower_date, cancellationToken);
                         consecutivePostTimeouts = 0;
+                    }
+
+                    if (duplicatesThisCycle > 0)
+                    {
+                        logger.Info($"Dropped {duplicatesThisCycle} duplicate observation(s) this cycle (same source and recorded_at as one already sent).");
                     }
 
                     // Reset error counter on successful read cycle
