@@ -9,23 +9,35 @@ namespace DataPump
     /// it are one observation downstream, even when the rows have
     /// different IDs.
     ///
-    /// Keys are kept for a sliding window measured in recorded_at time
-    /// (not wall-clock), so a duplicate that arrives in a later poll is
-    /// still caught. Once the newest recorded_at seen is more than the
-    /// window ahead of a key, that key is forgotten.
+    /// Keys are remembered for a window of elapsed time since the pump
+    /// saw them, not a window of recorded_at time. recorded_at comes from
+    /// the radio's clock and readers don't return rows in recorded_at
+    /// order, so evicting by it either keeps keys forever (one record with
+    /// a far-future timestamp would stall eviction for the life of the
+    /// process) or forgets keys too early. Duplicate rows are written
+    /// close together and read close together, so elapsed time since
+    /// seen is what actually bounds how far apart two copies arrive.
+    /// Because keys are queued in the order they're seen, eviction is a
+    /// simple FIFO and memory is bounded by one window of throughput.
     /// </summary>
     public class ObservationDeduplicator
     {
-        public static readonly TimeSpan DefaultWindow = TimeSpan.FromHours(48);
+        public static readonly TimeSpan DefaultWindow = TimeSpan.FromHours(6);
 
-        private readonly TimeSpan _window;
+        private readonly long _windowMs;
+        private readonly Func<long> _nowMs;
         private readonly HashSet<(string source, long recordedAtTicks)> _seen = new();
-        private readonly Queue<(string source, long recordedAtTicks)> _order = new();
-        private long _newestTicks = long.MinValue;
+        private readonly Queue<((string source, long recordedAtTicks) key, long seenAtMs)> _order = new();
 
-        public ObservationDeduplicator(TimeSpan? window = null)
+        /// <param name="window">How long a key is remembered after it was first seen.</param>
+        /// <param name="nowMs">
+        /// Monotonic milliseconds. Defaults to Environment.TickCount64, which
+        /// doesn't jump with wall-clock changes. Injectable for tests.
+        /// </param>
+        public ObservationDeduplicator(TimeSpan? window = null, Func<long>? nowMs = null)
         {
-            _window = window ?? DefaultWindow;
+            _windowMs = (long)(window ?? DefaultWindow).TotalMilliseconds;
+            _nowMs = nowMs ?? (() => Environment.TickCount64);
         }
 
         public int Count => _seen.Count;
@@ -33,10 +45,13 @@ namespace DataPump
         /// <summary>
         /// Returns true if the record is new and has been remembered;
         /// false if an observation with the same source and recorded_at
-        /// was already seen within the window.
+        /// was seen within the window.
         /// </summary>
         public bool TryAdd(ISourceRecord record)
         {
+            var now = _nowMs();
+            Prune(now);
+
             var obs = record.ToGundiV2Observation();
             var key = (obs.source ?? "", obs.recorded_at.Ticks);
 
@@ -45,25 +60,19 @@ namespace DataPump
                 return false;
             }
 
-            _order.Enqueue(key);
-            if (key.Item2 > _newestTicks)
-            {
-                _newestTicks = key.Item2;
-                Prune();
-            }
+            _order.Enqueue((key, now));
             return true;
         }
 
-        private void Prune()
+        private void Prune(long now)
         {
-            var cutoff = _newestTicks - _window.Ticks;
-            // Keys are enqueued in arrival order, not recorded_at order, so
-            // only the head is checked each time. An out-of-order old key
-            // behind a newer one lingers until the newer one expires; that
-            // costs a little memory, never a wrong answer.
-            while (_order.Count > 0 && _order.Peek().recordedAtTicks < cutoff)
+            // Prune runs before every add, so a key is always dequeued
+            // before it can be re-added: each key appears at most once in
+            // the queue, and removing it from the set here is exact.
+            var cutoff = now - _windowMs;
+            while (_order.Count > 0 && _order.Peek().seenAtMs <= cutoff)
             {
-                _seen.Remove(_order.Dequeue());
+                _seen.Remove(_order.Dequeue().key);
             }
         }
     }

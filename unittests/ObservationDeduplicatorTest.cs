@@ -40,27 +40,74 @@ namespace general_tests
             Assert.Equal(3, d.Count);
         }
 
+        /// <summary>A manually advanced monotonic clock, in milliseconds.</summary>
+        private class FakeClock
+        {
+            public long Ms;
+            public void Advance(TimeSpan t) => Ms += (long)t.TotalMilliseconds;
+        }
+
         [Fact]
         public void KeyOlderThanWindow_IsForgotten()
         {
-            var d = new ObservationDeduplicator(TimeSpan.FromHours(1));
+            var clock = new FakeClock();
+            var d = new ObservationDeduplicator(TimeSpan.FromHours(1), () => clock.Ms);
             Assert.True(d.TryAdd(Row(1, 7, T0)));
 
-            // A record 2h later pushes the window past T0.
-            Assert.True(d.TryAdd(Row(2, 7, T0.AddHours(2))));
-            Assert.Equal(1, d.Count);
+            clock.Advance(TimeSpan.FromHours(1));
 
-            // The T0 key is gone, so the same key is accepted again.
-            Assert.True(d.TryAdd(Row(3, 7, T0)));
+            // Seen a full window ago, so it's forgotten and accepted again.
+            Assert.True(d.TryAdd(Row(2, 7, T0)));
+            Assert.Equal(1, d.Count);
         }
 
         [Fact]
         public void KeyInsideWindow_IsStillRemembered()
         {
-            var d = new ObservationDeduplicator(TimeSpan.FromHours(1));
+            var clock = new FakeClock();
+            var d = new ObservationDeduplicator(TimeSpan.FromHours(1), () => clock.Ms);
             Assert.True(d.TryAdd(Row(1, 7, T0)));
-            Assert.True(d.TryAdd(Row(2, 7, T0.AddMinutes(30))));
-            Assert.False(d.TryAdd(Row(3, 7, T0)));
+
+            clock.Advance(TimeSpan.FromMinutes(59));
+
+            Assert.False(d.TryAdd(Row(2, 7, T0)));
+        }
+
+        [Fact]
+        public void OutOfOrderRecordedAt_DoesNotAffectEviction()
+        {
+            // The ordering from review: recorded_at T+48h, then T, then
+            // T+49h, all seen within the window. A second T is a true
+            // repeat of something already sent, so it must be rejected,
+            // and nothing is evicted early because of recorded_at.
+            var clock = new FakeClock();
+            var d = new ObservationDeduplicator(TimeSpan.FromHours(48), () => clock.Ms);
+            Assert.True(d.TryAdd(Row(1, 7, T0.AddHours(48))));
+            Assert.True(d.TryAdd(Row(2, 7, T0)));
+            Assert.True(d.TryAdd(Row(3, 7, T0.AddHours(49))));
+            Assert.False(d.TryAdd(Row(4, 7, T0)));
+            Assert.Equal(3, d.Count);
+        }
+
+        [Fact]
+        public void FarFutureRecordedAt_DoesNotStallEviction()
+        {
+            // A radio with a bad clock reports a timestamp decades ahead.
+            // Memory must still be released as the window passes.
+            var clock = new FakeClock();
+            var d = new ObservationDeduplicator(TimeSpan.FromHours(1), () => clock.Ms);
+            Assert.True(d.TryAdd(Row(1, 7, new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Local))));
+            for (int i = 0; i < 100; i++)
+            {
+                Assert.True(d.TryAdd(Row(10 + i, 7, T0.AddSeconds(i))));
+            }
+            Assert.Equal(101, d.Count);
+
+            clock.Advance(TimeSpan.FromHours(1));
+            Assert.True(d.TryAdd(Row(999, 8, T0)));
+
+            // Everything older than the window is gone; only the new key remains.
+            Assert.Equal(1, d.Count);
         }
 
         [Fact]
